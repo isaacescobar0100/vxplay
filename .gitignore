@@ -3,4 +3,5 @@ out
 dist
 release
 *.log
+dev-log.txt
 .DS_Store
