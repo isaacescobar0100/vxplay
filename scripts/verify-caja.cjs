@@ -1,0 +1,12 @@
+const fs = require('fs'), path = require('path'), os = require('os'), initSqlJs = require('sql.js')
+;(async () => {
+  const wasm = fs.readFileSync(path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'))
+  const SQL = await initSqlJs({ wasmBinary: new Uint8Array(wasm).buffer })
+  const db = new SQL.Database(fs.readFileSync(path.join(os.homedir(), 'AppData', 'Roaming', 'pos-ropa', 'pos-ropa.sqlite')))
+  const tablas = db.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")[0].values.map((r) => r[0])
+  console.log('Tablas:', tablas.join(', '))
+  const cols = db.exec('PRAGMA table_info(ventas)')[0].values.map((r) => r[1])
+  console.log('Columna sesion_id en ventas:', cols.includes('sesion_id') ? 'SÍ ✔' : 'NO ✗')
+  console.log('Sesiones de caja:', db.exec('SELECT COUNT(*) FROM caja_sesiones')[0].values[0][0])
+  console.log('Devoluciones:', db.exec('SELECT COUNT(*) FROM devoluciones')[0].values[0][0])
+})()
