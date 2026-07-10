@@ -1,0 +1,30 @@
+appId: com.mitienda.posropa
+productName: POS Tienda de Ropa
+directories:
+  output: release
+  buildResources: build
+# Publicación de actualizaciones en GitHub Releases
+publish:
+  provider: github
+  owner: isaacescobar0100
+  repo: pos-ropa
+files:
+  - out/**/*
+  - node_modules/**/*
+  - package.json
+# Incluir el binario wasm de sql.js sin comprimir en el asar para poder leerlo
+asarUnpack:
+  - node_modules/sql.js/dist/sql-wasm.wasm
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon: build/icon.ico   # (opcional) coloca un icono aqui
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: POS Tienda de Ropa
