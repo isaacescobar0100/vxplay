@@ -50,6 +50,11 @@ export default function App(): JSX.Element {
   const [vista, setVista] = useState<Vista>('inicio')
   const [tienda, setTienda] = useState('Mi Tienda de Ropa')
   const [cambiarPass, setCambiarPass] = useState(false)
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    window.api.appVersion().then((v: string) => setVersion(v))
+  }, [])
 
   useEffect(() => {
     window.api.configGetAll().then((c: Record<string, string>) => {
@@ -100,6 +105,9 @@ export default function App(): JSX.Element {
               Salir
             </button>
           </div>
+          {version && (
+            <div style={{ marginTop: 8, fontSize: 11, opacity: 0.6 }}>VxPlay v{version}</div>
+          )}
         </div>
       </aside>
 

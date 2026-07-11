@@ -5,6 +5,9 @@ import { contextBridge, ipcRenderer } from 'electron'
  * El renderer nunca accede directamente a Node ni a la base de datos.
  */
 const api = {
+  // Version de la app
+  appVersion: () => ipcRenderer.invoke('app:version'),
+
   // Autenticacion
   login: (usuario: string, password: string) => ipcRenderer.invoke('auth:login', usuario, password),
 
