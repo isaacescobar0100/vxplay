@@ -4,4 +4,7 @@ dist
 release
 *.log
 dev-log.txt
+dev-log2.txt
+*.tsbuildinfo
+electron.vite.config.*.mjs
 .DS_Store
