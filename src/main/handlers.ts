@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, app } from 'electron'
 import { writeFileSync } from 'fs'
 import { query, queryOne, insert, run, transaction, persist, getDb } from './db'
 import { facturarVenta } from './dian'
@@ -12,6 +12,9 @@ import type { SqlValue } from 'sql.js'
  * del objeto `window.api` expuesto en preload.
  */
 export function registerHandlers(): void {
+  // Versión de la app (para mostrarla en la interfaz)
+  ipcMain.handle('app:version', () => app.getVersion())
+
   // ---------- AUTENTICACION ----------
   ipcMain.handle('auth:login', (_e, usuario: string, password: string) => {
     const user = queryOne<any>(

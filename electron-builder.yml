@@ -23,9 +23,9 @@ win:
         - x64
   # icon: build/icon.ico   # (opcional) coloca un icono aqui
 nsis:
-  oneClick: false
+  oneClick: true
   perMachine: false
-  allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: VxPlay
+  # Actualizaciones silenciosas: se aplican solas al reiniciar, sin asistente.
