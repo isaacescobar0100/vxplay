@@ -18,15 +18,32 @@ function pesos(n: number): string {
   return '$' + Number(n || 0).toLocaleString('es-CO')
 }
 
+/** Devuelve las medidas del ticket según el ancho de papel configurado (58 u 80 mm). */
+function medidasPapel(cfg: Record<string, string>): {
+  ancho: string
+  pad: string
+  fs: string
+  big: string
+  logo: string
+  papel: string
+} {
+  const ochenta = cfg.ancho_papel === '80'
+  return ochenta
+    ? { ancho: '68mm', pad: '2mm', fs: '13px', big: '16px', logo: '60mm', papel: '80mm' }
+    : { ancho: '42mm', pad: '1mm', fs: '12px', big: '14px', logo: '38mm', papel: '58mm' }
+}
+
 /** HTML del ticket. Si `preview` es true, agrega una barra de acciones arriba. */
 function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean): string {
+  const m = medidasPapel(cfg)
   const items = (venta.items ?? [])
     .map(
       (it: any) => `
-      <tr>
-        <td class="l">${it.cantidad} x ${it.producto_nombre}${it.talla ? ' T:' + it.talla : ''}${
+      <tr><td class="l b" colspan="2">${it.producto_nombre}${it.talla ? ' T:' + it.talla : ''}${
         it.color ? ' ' + it.color : ''
-      }</td>
+      }</td></tr>
+      <tr>
+        <td class="l">${it.cantidad} x ${pesos(it.precio_unitario)}</td>
         <td class="r">${pesos(it.subtotal)}</td>
       </tr>`
     )
@@ -54,15 +71,17 @@ function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean):
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
 <style>
+  @page { size: ${m.papel} auto; margin: 0; }
   * { margin:0; padding:0; box-sizing:border-box; }
-  html, body { background: ${preview ? '#334155' : '#fff'}; }
+  html, body { background: ${preview ? '#334155' : '#fff'}; margin:0; padding:0; }
   .ticket {
-    font-family: 'Courier New', monospace; font-size: 12px; color:#000; background:#fff;
-    width: 76mm; padding: 4mm; ${preview ? 'margin: 78px auto 24px; box-shadow: 0 8px 30px rgba(0,0,0,.4);' : ''}
+    font-family: 'Courier New', monospace; font-size: ${m.fs}; color:#000; background:#fff;
+    font-weight: bold; -webkit-font-smoothing: none;
+    width: ${m.ancho}; padding: ${m.pad}; ${preview ? 'margin: 78px auto 24px; box-shadow: 0 8px 30px rgba(0,0,0,.4);' : 'margin:0;'}
   }
   .center { text-align:center; }
   .b { font-weight:bold; }
-  .big { font-size:15px; }
+  .big { font-size:${m.big}; }
   hr { border:none; border-top:1px dashed #000; margin:6px 0; }
   table { width:100%; border-collapse:collapse; }
   td.l { text-align:left; }
@@ -70,7 +89,9 @@ function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean):
   .tot td { padding-top:2px; }
   .dian { margin-top:8px; font-size:10px; word-break:break-all; text-align:center; }
   .cufe { font-size:9px; }
-  .foot { margin-top:10px; text-align:center; font-size:11px; }
+  .foot { margin-top:8px; text-align:center; }
+  .deco { overflow:hidden; white-space:nowrap; text-align:center; letter-spacing:1px; line-height:1; margin:4px 0; }
+  .stars { letter-spacing:3px; }
   .toolbar {
     position: fixed; top:0; left:0; right:0; height:54px; background:#1e293b; color:#e2e8f0;
     display:flex; align-items:center; justify-content:space-between; padding:0 18px;
@@ -86,19 +107,19 @@ function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean):
 <body>
   ${barra}
   <div class="ticket">
-    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:50mm;max-height:80px;display:block;margin:0 auto 6px"/>` : ''}
+    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:${m.logo};max-height:70px;display:block;margin:0 auto 6px"/>` : ''}
     <div class="center b big">${cfg.tienda_nombre ?? 'Mi Tienda'}</div>
     <div class="center">NIT: ${cfg.tienda_nit ?? ''}</div>
     <div class="center">${cfg.tienda_direccion ?? ''}</div>
     <div class="center">${cfg.tienda_ciudad ?? ''} - Tel: ${cfg.tienda_telefono ?? ''}</div>
-    <hr/>
+    <div class="deco">========================================</div>
     <div>Venta: ${venta.numero}</div>
     <div>Fecha: ${venta.fecha}</div>
     <div>Cliente: ${venta.cliente_nombre ?? 'Consumidor Final'}</div>
     ${venta.cliente_documento ? `<div>Doc: ${venta.cliente_documento}</div>` : ''}
-    <hr/>
+    <div class="deco">----------------------------------------</div>
     <table>${items}</table>
-    <hr/>
+    <div class="deco">----------------------------------------</div>
     <table class="tot">
       <tr><td class="l">Subtotal</td><td class="r">${pesos(venta.subtotal)}</td></tr>
       ${venta.descuento ? `<tr><td class="l">Descuento</td><td class="r">-${pesos(venta.descuento)}</td></tr>` : ''}
@@ -108,7 +129,10 @@ function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean):
       <tr><td class="l">Cambio</td><td class="r">${pesos(venta.cambio)}</td></tr>
     </table>
     ${dianInfo}
-    <div class="foot">Gracias por su compra!</div>
+    <div class="deco">========================================</div>
+    <div class="foot b">GRACIAS POR SU COMPRA!</div>
+    <div class="deco stars">* * * * * * * * * * * * * * * *</div>
+    <div class="foot">Vuelva pronto</div>
   </div>
 </body></html>`
 }
@@ -160,6 +184,7 @@ export async function imprimirTicket(
 
 /** HTML del reporte de cierre de caja (arqueo "Z"). */
 function generarCierreHtml(d: any, cfg: Record<string, string>, preview: boolean): string {
+  const m = medidasPapel(cfg)
   const linea = (l: string, v: number, neg = false) =>
     `<tr><td class="l">${l}</td><td class="r">${neg ? '-' : ''}${pesos(v)}</td></tr>`
   const barra = preview
@@ -170,12 +195,13 @@ function generarCierreHtml(d: any, cfg: Record<string, string>, preview: boolean
   const difColor = d.diferencia === 0 ? '#000' : d.diferencia > 0 ? '#b45309' : '#b91c1c'
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <style>
+  @page{size:${m.papel} auto;margin:0}
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{background:${preview ? '#334155' : '#fff'}}
-  .ticket{font-family:'Courier New',monospace;font-size:12px;color:#000;background:#fff;width:76mm;padding:4mm;${
-    preview ? 'margin:78px auto 24px;box-shadow:0 8px 30px rgba(0,0,0,.4)' : ''
+  html,body{background:${preview ? '#334155' : '#fff'};margin:0;padding:0}
+  .ticket{font-family:'Courier New',monospace;font-size:${m.fs};color:#000;background:#fff;font-weight:bold;-webkit-font-smoothing:none;width:${m.ancho};padding:${m.pad};${
+    preview ? 'margin:78px auto 24px;box-shadow:0 8px 30px rgba(0,0,0,.4)' : 'margin:0'
   }}
-  .center{text-align:center}.b{font-weight:bold}.big{font-size:15px}
+  .center{text-align:center}.b{font-weight:bold}.big{font-size:${m.big}}
   hr{border:none;border-top:1px dashed #000;margin:6px 0}
   table{width:100%;border-collapse:collapse}td.l{text-align:left}td.r{text-align:right}
   .toolbar{position:fixed;top:0;left:0;right:0;height:54px;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-family:'Segoe UI',sans-serif;font-size:14px}
@@ -185,7 +211,7 @@ function generarCierreHtml(d: any, cfg: Record<string, string>, preview: boolean
 </style></head><body>
   ${barra}
   <div class="ticket">
-    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:50mm;max-height:80px;display:block;margin:0 auto 6px"/>` : ''}
+    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:${m.logo};max-height:70px;display:block;margin:0 auto 6px"/>` : ''}
     <div class="center b big">${cfg.tienda_nombre ?? 'Mi Tienda'}</div>
     <div class="center">CIERRE DE CAJA (Z)</div>
     <div class="center">Sesión #${d.numero}</div>

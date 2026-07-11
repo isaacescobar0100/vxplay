@@ -1,5 +1,5 @@
 appId: com.mitienda.posropa
-productName: POS Tienda de Ropa
+productName: VxPlay
 directories:
   output: release
   buildResources: build
@@ -15,6 +15,7 @@ files:
 # Incluir el binario wasm de sql.js sin comprimir en el asar para poder leerlo
 asarUnpack:
   - node_modules/sql.js/dist/sql-wasm.wasm
+artifactName: ${productName}-Setup-${version}.${ext}
 win:
   target:
     - target: nsis
@@ -27,4 +28,4 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: POS Tienda de Ropa
+  shortcutName: VxPlay

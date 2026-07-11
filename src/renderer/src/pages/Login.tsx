@@ -21,7 +21,7 @@ export default function Login({ onLogin }: { onLogin: (u: Usuario) => void }): J
     <div className="login-wrap">
       <form className="login-card" onSubmit={entrar}>
         <h1>
-          POS <span style={{ color: 'var(--primary)' }}>Ropa</span>
+          Vx<span style={{ color: 'var(--primary)' }}>Play</span>
         </h1>
         <p>Sistema de punto de venta</p>
         <div className="field">

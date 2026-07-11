@@ -63,7 +63,7 @@ export default function App(): JSX.Element {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          POS <span>Ropa</span>
+          Vx<span>Play</span>
         </div>
         {NAV.filter((n) => !n.roles || n.roles.includes(usuario.rol)).map((n) => (
           <button

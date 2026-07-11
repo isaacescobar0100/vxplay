@@ -211,6 +211,13 @@ export default function Configuracion(): JSX.Element {
               ))}
             </select>
           </div>
+          <div className="field">
+            <label>Ancho del papel</label>
+            <select value={cfg.ancho_papel ?? '58'} onChange={(e) => set('ancho_papel', e.target.value)}>
+              <option value="58">58 mm (rollo pequeño)</option>
+              <option value="80">80 mm (rollo grande)</option>
+            </select>
+          </div>
         </div>
         {impresoras.length === 0 && (
           <p className="muted" style={{ fontSize: 12 }}>

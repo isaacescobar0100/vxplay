@@ -299,7 +299,8 @@ function seedInitialData(): void {
       ['dian_api_token', ''],
       ['dian_habilitado', '0'],
       ['impresion_modo', 'previsualizar'], // previsualizar | auto | dialogo
-      ['impresora_nombre', ''] // vacio = impresora por defecto de Windows
+      ['impresora_nombre', ''], // vacio = impresora por defecto de Windows
+      ['ancho_papel', '58'] // 58 | 80 (mm) - ancho del rollo de la impresora termica
     ]
     for (const [clave, valor] of defaults) {
       run('INSERT INTO config (clave, valor) VALUES (?,?)', [clave, valor])

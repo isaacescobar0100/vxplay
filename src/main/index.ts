@@ -15,7 +15,7 @@ function createWindow(): void {
     minHeight: 680,
     show: false,
     autoHideMenuBar: true,
-    title: 'POS Tienda de Ropa',
+    title: 'VxPlay',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
