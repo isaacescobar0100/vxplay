@@ -86,6 +86,7 @@ const api = {
   imprimirTicket: (ventaId: number) => ipcRenderer.invoke('imprimir:ticket', ventaId),
   listarImpresoras: () => ipcRenderer.invoke('imprimir:listar'),
   imprimirEtiquetas: (html: string) => ipcRenderer.invoke('imprimir:etiquetas', html),
+  etiquetasPdf: (html: string) => ipcRenderer.invoke('imprimir:etiquetasPdf', html),
 
   // Respaldos
   backupCrear: () => ipcRenderer.invoke('backup:crear'),

@@ -213,7 +213,7 @@ function EtiquetasModal({ onClose }: { onClose: () => void }): JSX.Element {
   const filtrados = items.filter((i) => i.nombre.toLowerCase().includes(filtro.toLowerCase()))
   const totalEtiquetas = Object.values(cant).reduce((s, n) => s + (n || 0), 0)
 
-  async function imprimir(): Promise<void> {
+  function construirHtml(): string {
     const partes: string[] = []
     for (const it of items) {
       const n = cant[it.id] ?? 0
@@ -227,11 +227,26 @@ function EtiquetasModal({ onClose }: { onClose: () => void }): JSX.Element {
           </div>`)
       }
     }
-    if (partes.length === 0) {
-      alert('Indica cuántas etiquetas imprimir de al menos un producto.')
+    return partes.join('')
+  }
+
+  async function imprimir(): Promise<void> {
+    const html = construirHtml()
+    if (!html) {
+      alert('Indica cuántas etiquetas de al menos un producto.')
       return
     }
-    await window.api.imprimirEtiquetas(partes.join(''))
+    await window.api.imprimirEtiquetas(html)
+  }
+
+  async function descargarPdf(): Promise<void> {
+    const html = construirHtml()
+    if (!html) {
+      alert('Indica cuántas etiquetas de al menos un producto.')
+      return
+    }
+    const r: any = await window.api.etiquetasPdf(html)
+    if (r.ok) alert('Etiquetas guardadas en:\n' + r.ruta)
   }
 
   return (
@@ -289,6 +304,9 @@ function EtiquetasModal({ onClose }: { onClose: () => void }): JSX.Element {
         </div>
         <div className="modal-foot">
           <button onClick={onClose}>Cerrar</button>
+          <button className="btn-icon" onClick={descargarPdf} disabled={totalEtiquetas === 0}>
+            <Icon name="image" size={15} /> Descargar PDF
+          </button>
           <button className="btn-primary btn-icon" onClick={imprimir} disabled={totalEtiquetas === 0}>
             <Icon name="print" size={15} /> Imprimir {totalEtiquetas > 0 ? `(${totalEtiquetas})` : ''}
           </button>
@@ -502,6 +520,12 @@ export function ProductoModal({
     }))
   }
 
+  // Genera un código de barras numérico único (para productos sin código)
+  function generarCodigo(i: number): void {
+    const codigo = String(Date.now()).slice(-10) + String(i)
+    setVar(i, 'codigo_barras', codigo)
+  }
+
   function addVar(): void {
     setForm((f) => ({
       ...f,
@@ -644,10 +668,21 @@ export function ProductoModal({
                       <input value={v.color ?? ''} onChange={(e) => setVar(i, 'color', e.target.value)} />
                     </td>
                     <td>
-                      <input
-                        value={v.codigo_barras ?? ''}
-                        onChange={(e) => setVar(i, 'codigo_barras', e.target.value)}
-                      />
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <input
+                          value={v.codigo_barras ?? ''}
+                          onChange={(e) => setVar(i, 'codigo_barras', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn-sm"
+                          title="Generar código automático"
+                          style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}
+                          onClick={() => generarCodigo(i)}
+                        >
+                          Gen
+                        </button>
+                      </div>
                     </td>
                     <td style={{ width: 80 }}>
                       <input
@@ -686,10 +721,20 @@ export function ProductoModal({
           <div className="grid-3">
             <div className="field">
               <label>Código de barras</label>
-              <input
-                value={form.variantes[0]?.codigo_barras ?? ''}
-                onChange={(e) => setVar(0, 'codigo_barras', e.target.value)}
-              />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  value={form.variantes[0]?.codigo_barras ?? ''}
+                  onChange={(e) => setVar(0, 'codigo_barras', e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn-sm"
+                  style={{ whiteSpace: 'nowrap' }}
+                  onClick={() => generarCodigo(0)}
+                >
+                  Generar
+                </button>
+              </div>
             </div>
             <div className="field">
               <label>Stock actual</label>

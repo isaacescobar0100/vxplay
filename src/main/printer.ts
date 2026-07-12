@@ -1,4 +1,5 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
+import { writeFileSync } from 'fs'
 
 /**
  * Impresion de tickets/facturas.
@@ -276,9 +277,17 @@ export async function imprimirCierre(
   })
 }
 
-/** Abre una ventana con las etiquetas de código de barras para imprimir. */
-export async function imprimirEtiquetas(cuerpoHtml: string): Promise<{ ok: boolean }> {
-  const html = `<!doctype html><html><head><meta charset="utf-8"/>
+function envolverEtiquetas(cuerpoHtml: string, conBarra: boolean): string {
+  const barra = conBarra
+    ? `<div class="toolbar no-print">
+         <span>Etiquetas de código de barras</span>
+         <div>
+           <button onclick="window.print()">Imprimir / elegir impresora</button>
+           <button class="close" onclick="window.close()">Cerrar</button>
+         </div>
+       </div>`
+    : ''
+  return `<!doctype html><html><head><meta charset="utf-8"/>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Segoe UI',sans-serif;background:#334155;padding:0}
@@ -293,15 +302,13 @@ export async function imprimirEtiquetas(cuerpoHtml: string): Promise<{ ok: boole
   .etq .cod{font-family:'Courier New',monospace;font-size:9px;letter-spacing:1px;margin-top:1px}
   @media print{ body{background:#fff} .no-print{display:none!important} .hoja{margin:0;width:auto} .etq{border:none} }
 </style></head><body>
-  <div class="toolbar no-print">
-    <span>Etiquetas de código de barras</span>
-    <div>
-      <button onclick="window.print()">Imprimir</button>
-      <button class="close" onclick="window.close()">Cerrar</button>
-    </div>
-  </div>
+  ${barra}
   <div class="hoja">${cuerpoHtml}</div>
 </body></html>`
+}
+
+/** Abre una ventana con las etiquetas para imprimir (permite elegir impresora). */
+export async function imprimirEtiquetas(cuerpoHtml: string): Promise<{ ok: boolean }> {
   const win = new BrowserWindow({
     width: 900,
     height: 700,
@@ -309,8 +316,29 @@ export async function imprimirEtiquetas(cuerpoHtml: string): Promise<{ ok: boole
     autoHideMenuBar: true,
     webPreferences: { sandbox: true }
   })
-  await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+  await win.loadURL(
+    'data:text/html;charset=utf-8,' + encodeURIComponent(envolverEtiquetas(cuerpoHtml, true))
+  )
   return { ok: true }
+}
+
+/** Genera un PDF con las etiquetas y lo guarda donde el usuario elija. */
+export async function etiquetasPdf(cuerpoHtml: string): Promise<{ ok: boolean; ruta?: string }> {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+  await win.loadURL(
+    'data:text/html;charset=utf-8,' + encodeURIComponent(envolverEtiquetas(cuerpoHtml, false))
+  )
+  const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' })
+  win.close()
+  const ts = new Date().toISOString().slice(0, 10)
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Descargar etiquetas',
+    defaultPath: `etiquetas-${ts}.pdf`,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  })
+  if (canceled || !filePath) return { ok: false }
+  writeFileSync(filePath, pdf)
+  return { ok: true, ruta: filePath }
 }
 
 /** Lista las impresoras instaladas en el sistema (para la configuracion). */
