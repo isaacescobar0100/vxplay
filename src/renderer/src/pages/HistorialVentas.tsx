@@ -60,6 +60,11 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
               <tr key={v.id}>
                 <td>
                   <b>{v.numero}</b>
+                  {v.devuelto > 0 && (
+                    <span className="badge badge-amber" style={{ marginLeft: 6 }}>
+                      ↩ {v.devuelto >= v.total ? 'Devuelto' : 'Dev. parcial'}
+                    </span>
+                  )}
                 </td>
                 <td className="muted">{v.fecha}</td>
                 <td>{v.cliente_nombre ?? 'Consumidor final'}</td>
@@ -132,6 +137,12 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
                 <span>TOTAL</span>
                 <span>{cop(detalle.total)}</span>
               </div>
+              {detalle.devuelto > 0 && (
+                <div className="total-line" style={{ color: 'var(--amber)' }}>
+                  <span>↩ Devuelto</span>
+                  <span>−{cop(detalle.devuelto)}</span>
+                </div>
+              )}
             </div>
 
             {dianOn && (

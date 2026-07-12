@@ -310,7 +310,8 @@ export function registerHandlers(): void {
 
   ipcMain.handle('ventas:list', (_e, limit = 100) =>
     query(
-      `SELECT v.*, c.nombre as cliente_nombre
+      `SELECT v.*, c.nombre as cliente_nombre,
+         COALESCE((SELECT SUM(d.total) FROM devoluciones d WHERE d.venta_id = v.id), 0) as devuelto
        FROM ventas v LEFT JOIN clientes c ON c.id = v.cliente_id
        ORDER BY v.id DESC LIMIT ?`,
       [limit]
@@ -745,7 +746,15 @@ export function registerHandlers(): void {
           ? Math.round((utilidad.utilidad / utilidad.ingreso_base) * 100)
           : 0
     }
-    return { totales, porDia, topProductos, porMetodo, utilidad }
+    const devoluciones =
+      queryOne<{ total: number; n: number }>(
+        `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n
+         FROM devoluciones WHERE date(fecha) BETWEEN date(?) AND date(?)`,
+        [desde, hasta]
+      ) ?? { total: 0, n: 0 }
+    const neto = Number((totales as any)?.total_vendido ?? 0) - devoluciones.total
+
+    return { totales, porDia, topProductos, porMetodo, utilidad, devoluciones, neto }
   })
 
   ipcMain.handle('reportes:stockBajo', () =>
@@ -892,7 +901,8 @@ function obtenerVenta(id: number): any {
   const venta = queryOne(
     `SELECT v.*, c.nombre as cliente_nombre, c.numero_documento as cliente_documento,
             c.tipo_documento as cliente_tipo_doc, c.direccion as cliente_direccion,
-            c.telefono as cliente_telefono, c.email as cliente_email
+            c.telefono as cliente_telefono, c.email as cliente_email,
+            COALESCE((SELECT SUM(d.total) FROM devoluciones d WHERE d.venta_id = v.id), 0) as devuelto
      FROM ventas v LEFT JOIN clientes c ON c.id = v.cliente_id WHERE v.id = ?`,
     [id]
   ) as any

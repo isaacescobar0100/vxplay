@@ -105,18 +105,23 @@ export default function Reportes(): JSX.Element {
 
       <div className="grid-3" style={{ marginBottom: 20 }}>
         <div className="stat-card">
-          <div className="stat-label">Total vendido</div>
-          <div className="stat-value" style={{ color: 'var(--green)' }}>
-            {cop(t?.total_vendido)}
+          <div className="stat-label">Ventas brutas</div>
+          <div className="stat-value">{cop(t?.total_vendido)}</div>
+          <div className="muted" style={{ fontSize: 12 }}>{t?.num_ventas ?? 0} ventas</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Devoluciones</div>
+          <div className="stat-value" style={{ color: 'var(--red)' }}>
+            −{cop(data?.devoluciones?.total)}
           </div>
+          <div className="muted" style={{ fontSize: 12 }}>{data?.devoluciones?.n ?? 0} devoluciones</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Número de ventas</div>
-          <div className="stat-value">{t?.num_ventas ?? 0}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">IVA recaudado</div>
-          <div className="stat-value">{cop(t?.total_iva)}</div>
+          <div className="stat-label">Ventas netas</div>
+          <div className="stat-value" style={{ color: 'var(--green)' }}>
+            {cop(data?.neto)}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>IVA: {cop(t?.total_iva)}</div>
         </div>
       </div>
 

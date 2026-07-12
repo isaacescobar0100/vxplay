@@ -255,28 +255,32 @@
         const hace7 = ymd(new Date(Date.now() - 6 * 86400000))
         const mes = hoy.slice(0, 7) // YYYY-MM
 
-        // agrupar por licencia
+        // agrupar por licencia (bruto, devoluciones y neto)
         const porTienda = {}
         for (const r of rows) {
           const k = r.licencia
-          if (!porTienda[k]) porTienda[k] = { nombre: r.tienda_nombre || k, hoy: 0, semana: 0, mes: 0, total: 0, num: 0 }
+          if (!porTienda[k]) porTienda[k] = { nombre: r.tienda_nombre || k, hoy: 0, semana: 0, mesBruto: 0, mesDev: 0, num: 0, ndev: 0 }
           const t = porTienda[k]
-          t.total += r.total; t.num += r.num_ventas
-          if (r.fecha === hoy) t.hoy += r.total
-          if (r.fecha >= hace7) t.semana += r.total
-          if (String(r.fecha).slice(0, 7) === mes) t.mes += r.total
+          const dev = r.devoluciones || 0
+          const neto = r.total - dev
+          t.num += r.num_ventas
+          t.ndev += r.num_dev || 0
+          if (r.fecha === hoy) t.hoy += neto
+          if (r.fecha >= hace7) t.semana += neto
+          if (String(r.fecha).slice(0, 7) === mes) { t.mesBruto += r.total; t.mesDev += dev }
         }
-        const lista = Object.values(porTienda).sort((a, b) => b.mes - a.mes)
-        const g = lista.reduce((a, t) => ({ hoy: a.hoy + t.hoy, semana: a.semana + t.semana, mes: a.mes + t.mes, total: a.total + t.total }), { hoy: 0, semana: 0, mes: 0, total: 0 })
+        const lista = Object.values(porTienda).map((t) => ({ ...t, mesNeto: t.mesBruto - t.mesDev })).sort((a, b) => b.mesNeto - a.mesNeto)
+        const g = lista.reduce((a, t) => ({ hoy: a.hoy + t.hoy, semana: a.semana + t.semana, bruto: a.bruto + t.mesBruto, dev: a.dev + t.mesDev, neto: a.neto + t.mesNeto }), { hoy: 0, semana: 0, bruto: 0, dev: 0, neto: 0 })
 
         const filas = lista.map((t) => `
           <tr>
             <td><b>${esc(t.nombre)}</b></td>
             <td class="r" style="color:#4ade80">${cop(t.hoy)}</td>
             <td class="r">${cop(t.semana)}</td>
-            <td class="r"><b>${cop(t.mes)}</b></td>
-            <td class="r muted">${cop(t.total)}</td>
-            <td class="r muted">${t.num}</td>
+            <td class="r muted">${cop(t.mesBruto)}</td>
+            <td class="r" style="color:#f87171">${t.mesDev > 0 ? '−' + cop(t.mesDev) : '—'}</td>
+            <td class="r"><b>${cop(t.mesNeto)}</b></td>
+            <td class="r muted">${t.num}${t.ndev > 0 ? ` <span style="color:#f87171">(${t.ndev} dev)</span>` : ''}</td>
           </tr>`).join('')
 
         app.innerHTML = `
@@ -286,15 +290,15 @@
               <div><button onclick="cargar()">← Tiendas</button><button class="sm" onclick="cerrarSesion()">Salir</button></div>
             </div>
             <div class="stats4">
-              <div class="card"><div class="muted">Hoy (todas)</div><div style="font-size:24px;font-weight:800;color:#4ade80">${cop(g.hoy)}</div></div>
-              <div class="card"><div class="muted">Últimos 7 días</div><div style="font-size:24px;font-weight:800">${cop(g.semana)}</div></div>
-              <div class="card"><div class="muted">Este mes</div><div style="font-size:24px;font-weight:800">${cop(g.mes)}</div></div>
-              <div class="card"><div class="muted">Tiendas activas</div><div style="font-size:24px;font-weight:800">${lista.length}</div></div>
+              <div class="card"><div class="muted">Hoy (neto)</div><div style="font-size:24px;font-weight:800;color:#4ade80">${cop(g.hoy)}</div></div>
+              <div class="card"><div class="muted">Últimos 7 días (neto)</div><div style="font-size:24px;font-weight:800">${cop(g.semana)}</div></div>
+              <div class="card"><div class="muted">Este mes (neto)</div><div style="font-size:24px;font-weight:800;color:#4ade80">${cop(g.neto)}</div></div>
+              <div class="card"><div class="muted">Devoluciones (mes)</div><div style="font-size:24px;font-weight:800;color:#f87171">${g.dev > 0 ? '−' + cop(g.dev) : '$0'}</div></div>
             </div>
             <div class="card tabla-wrap" style="padding:0">
               <table>
-                <thead><tr><th>Tienda</th><th class="r">Hoy</th><th class="r">7 días</th><th class="r">Este mes</th><th class="r">Total 30d</th><th class="r">N° ventas</th></tr></thead>
-                <tbody>${filas || '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">Aún no hay ventas reportadas. Las tiendas suben su resumen al cerrar caja, al abrir y cada 6h.</td></tr>'}</tbody>
+                <thead><tr><th>Tienda</th><th class="r">Hoy</th><th class="r">7 días</th><th class="r">Mes bruto</th><th class="r">Devol.</th><th class="r">Mes neto</th><th class="r">N° ventas</th></tr></thead>
+                <tbody>${filas || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Aún no hay ventas reportadas. Las tiendas suben su resumen al cerrar caja, al abrir y cada 6h.</td></tr>'}</tbody>
               </table>
             </div>
             <p class="muted" style="margin-top:12px;font-size:12px">Resumen de los últimos 30 días. Cada tienda sube sus totales automáticamente (no datos sensibles).</p>

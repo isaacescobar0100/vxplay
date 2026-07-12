@@ -119,13 +119,28 @@ export async function subirResumen(): Promise<void> {
   if (!licencia) return
   const nombre = getCfg('tienda_nombre') ?? ''
 
-  const filas = query<{ fecha: string; num: number; total: number }>(
+  const ventasDia = query<{ fecha: string; num: number; total: number }>(
     `SELECT date(fecha) as fecha, COUNT(*) as num, COALESCE(SUM(total),0) as total
      FROM ventas
      WHERE estado = 'completada' AND date(fecha) >= date('now','-30 days','localtime')
      GROUP BY date(fecha)`
   )
-  const datos = filas.map((f) => ({ fecha: f.fecha, num: f.num, total: f.total }))
+  // Devoluciones por día (monto y cantidad) para el neto y el conteo
+  const devDia = query<{ fecha: string; dev: number; ndev: number }>(
+    `SELECT date(fecha) as fecha, COALESCE(SUM(total),0) as dev, COUNT(*) as ndev
+     FROM devoluciones
+     WHERE date(fecha) >= date('now','-30 days','localtime')
+     GROUP BY date(fecha)`
+  )
+  const devMap: Record<string, { dev: number; ndev: number }> = {}
+  for (const d of devDia) devMap[d.fecha] = { dev: d.dev, ndev: d.ndev }
+  const datos = ventasDia.map((f) => ({
+    fecha: f.fecha,
+    num: f.num,
+    total: f.total, // bruto
+    dev: devMap[f.fecha]?.dev ?? 0, // monto devuelto del día
+    ndev: devMap[f.fecha]?.ndev ?? 0 // cantidad de devoluciones del día
+  }))
 
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/rpc/subir_resumen`, {

@@ -98,12 +98,15 @@ export default function Inicio({
       {/* Métricas del día */}
       <div className="grid-3" style={{ marginBottom: 20 }}>
         <div className="stat-card">
-          <div className="stat-label">Ventas de hoy</div>
+          <div className="stat-label">Ventas de hoy {data?.devoluciones?.total > 0 ? '(neto)' : ''}</div>
           <div className="stat-value" style={{ color: 'var(--green)' }}>
-            {cop(t?.total_vendido)}
+            {cop(data?.devoluciones?.total > 0 ? data?.neto : t?.total_vendido)}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
             {t?.num_ventas ?? 0} ventas
+            {data?.devoluciones?.total > 0 && (
+              <> · bruto {cop(t?.total_vendido)} − devol. {cop(data?.devoluciones?.total)}</>
+            )}
           </div>
         </div>
         <div className="stat-card">
