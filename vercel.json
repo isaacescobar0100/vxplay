@@ -1,0 +1,6 @@
+{
+  "framework": null,
+  "installCommand": "echo sin-instalacion",
+  "buildCommand": "echo sin-build",
+  "outputDirectory": "superadmin"
+}
