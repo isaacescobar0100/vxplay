@@ -4,6 +4,7 @@ import { initDatabase } from './db'
 import { registerHandlers } from './handlers'
 import { crearBackupAutomatico } from './backup'
 import { initAutoUpdater } from './updater'
+import { respaldoAutomatico, subirRespaldo, subirResumen } from './respaldoNube'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -50,6 +51,13 @@ app.whenReady().then(async () => {
   registerHandlers()
   createWindow()
   initAutoUpdater() // revisa actualizaciones en GitHub (solo app instalada)
+  respaldoAutomatico().catch(() => {}) // respaldo a la nube si pasaron 24h
+  subirResumen().catch(() => {}) // resumen de ventas para el panel central
+  // Respaldo + resumen cada 6 horas mientras la app esté abierta
+  setInterval(() => {
+    subirRespaldo().catch(() => {})
+    subirResumen().catch(() => {})
+  }, 6 * 3600 * 1000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

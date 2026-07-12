@@ -6,16 +6,43 @@ export default function Configuracion(): JSX.Element {
   const [guardado, setGuardado] = useState(false)
   const [impresoras, setImpresoras] = useState<{ name: string; isDefault: boolean }[]>([])
   const [backups, setBackups] = useState<{ nombre: string; fecha: string; kb: number }[]>([])
+  const [nubeUltimo, setNubeUltimo] = useState<string | null>(null)
+  const [nubeCargando, setNubeCargando] = useState(false)
 
   async function cargarBackups(): Promise<void> {
     setBackups((await window.api.backupListar()) as any[])
+  }
+  async function cargarNube(): Promise<void> {
+    const r: any = await window.api.nubeUltimo()
+    setNubeUltimo(r.fecha)
   }
 
   useEffect(() => {
     window.api.configGetAll().then(setCfg)
     window.api.listarImpresoras().then(setImpresoras)
     cargarBackups()
+    cargarNube()
   }, [])
+
+  async function respaldarNube(): Promise<void> {
+    setNubeCargando(true)
+    const r: any = await window.api.nubeSubir()
+    setNubeCargando(false)
+    if (r.ok) {
+      await cargarNube()
+      alert('Respaldo subido a la nube correctamente. ✔')
+    } else {
+      alert('No se pudo respaldar: ' + (r.error ?? ''))
+    }
+  }
+  async function restaurarNube(): Promise<void> {
+    if (!confirm('¿Restaurar los datos desde la nube?\n\nSe reemplazarán los datos actuales de este equipo por la última copia en la nube. La app se reiniciará.')) {
+      return
+    }
+    const r: any = await window.api.nubeRestaurar()
+    if (!r.ok) alert('No se pudo restaurar: ' + (r.error ?? ''))
+    // si ok, la app se reinicia sola
+  }
 
   async function exportar(): Promise<void> {
     const r: any = await window.api.backupExportar()
@@ -54,34 +81,59 @@ export default function Configuracion(): JSX.Element {
     setTimeout(() => setGuardado(false), 2000)
   }
 
+  const central = cfg.config_central === '1'
+
   return (
     <div>
       <div className="page-title">Configuración</div>
+
+      {central && (
+        <div
+          className="card"
+          style={{ marginBottom: 16, background: 'rgba(99,102,241,.12)', border: '1px solid var(--primary)', fontSize: 13 }}
+        >
+          <Icon name="lock" size={15} /> Los <b>datos fiscales, DIAN y tipo de negocio</b> los gestiona el
+          proveedor (VxPlay) desde el panel central. Aquí solo puedes ajustar lo operativo de tu tienda
+          (logo, impresión, respaldos).
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 className="section-title" style={{ marginBottom: 14 }}>
           <Icon name="store" size={18} /> Datos de la tienda
         </h3>
+        <div className="field">
+          <label>Tipo de negocio</label>
+          <select value={cfg.tipo_negocio ?? 'ropa'} onChange={(e) => set('tipo_negocio', e.target.value)} disabled={central}>
+            <option value="ropa">Tienda de ropa (con tallas y colores)</option>
+            <option value="general">Tienda general (productos simples)</option>
+            <option value="bar">Bar / Club (con mesas y comandas)</option>
+            <option value="restaurante">Restaurante (con mesas y comandas)</option>
+          </select>
+          <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Cambia qué funciones aparecen. Guarda y reinicia la app para aplicarlo.
+          </p>
+        </div>
         <div className="grid-2">
           <div className="field">
-            <label>Nombre de la tienda</label>
-            <input value={cfg.tienda_nombre ?? ''} onChange={(e) => set('tienda_nombre', e.target.value)} />
+            <label>Nombre del negocio</label>
+            <input value={cfg.tienda_nombre ?? ''} onChange={(e) => set('tienda_nombre', e.target.value)} disabled={central} />
           </div>
           <div className="field">
             <label>NIT</label>
-            <input value={cfg.tienda_nit ?? ''} onChange={(e) => set('tienda_nit', e.target.value)} />
+            <input value={cfg.tienda_nit ?? ''} onChange={(e) => set('tienda_nit', e.target.value)} disabled={central} />
           </div>
           <div className="field">
             <label>Dirección</label>
-            <input value={cfg.tienda_direccion ?? ''} onChange={(e) => set('tienda_direccion', e.target.value)} />
+            <input value={cfg.tienda_direccion ?? ''} onChange={(e) => set('tienda_direccion', e.target.value)} disabled={central} />
           </div>
           <div className="field">
             <label>Ciudad</label>
-            <input value={cfg.tienda_ciudad ?? ''} onChange={(e) => set('tienda_ciudad', e.target.value)} />
+            <input value={cfg.tienda_ciudad ?? ''} onChange={(e) => set('tienda_ciudad', e.target.value)} disabled={central} />
           </div>
           <div className="field">
             <label>Teléfono</label>
-            <input value={cfg.tienda_telefono ?? ''} onChange={(e) => set('tienda_telefono', e.target.value)} />
+            <input value={cfg.tienda_telefono ?? ''} onChange={(e) => set('tienda_telefono', e.target.value)} disabled={central} />
           </div>
           <div className="field">
             <label>IVA por defecto (%)</label>
@@ -134,7 +186,31 @@ export default function Configuracion(): JSX.Element {
 
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 className="section-title" style={{ marginBottom: 6 }}>
-          <Icon name="lock" size={18} /> Respaldo de datos
+          <Icon name="cash" size={18} /> Respaldo en la nube
+        </h3>
+        <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+          Tus datos se suben a la nube <b>automáticamente cada 24 horas y al cerrar caja</b>. Si el
+          computador se daña, instala la app en otro, activa la misma licencia y restaura desde la nube.
+        </p>
+        <div style={{ marginBottom: 12, fontSize: 13 }}>
+          Último respaldo en la nube:{' '}
+          <b style={{ color: nubeUltimo ? 'var(--green)' : 'var(--amber)' }}>
+            {nubeUltimo ?? 'aún no se ha subido'}
+          </b>
+        </div>
+        <div className="row">
+          <button className="btn-green btn-icon" onClick={respaldarNube} disabled={nubeCargando}>
+            <Icon name="check" size={15} /> {nubeCargando ? 'Subiendo...' : 'Respaldar en la nube ahora'}
+          </button>
+          <button className="btn-danger btn-icon" onClick={restaurarNube}>
+            <Icon name="undo" size={15} /> Restaurar desde la nube
+          </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 className="section-title" style={{ marginBottom: 6 }}>
+          <Icon name="lock" size={18} /> Respaldo local (en este equipo)
         </h3>
         <p className="muted" style={{ marginBottom: 14, fontSize: 13 }}>
           La app hace una copia de seguridad <b>automática cada vez que inicia</b> (guarda las
@@ -227,6 +303,7 @@ export default function Configuracion(): JSX.Element {
         )}
       </div>
 
+      {(!central || cfg.dian_habilitado === '1') && (
       <div className="card">
         <h3 className="section-title" style={{ marginBottom: 6 }}>
           <Icon name="receipt" size={18} /> Facturación electrónica DIAN
@@ -239,7 +316,7 @@ export default function Configuracion(): JSX.Element {
         <div className="grid-2">
           <div className="field">
             <label>Proveedor</label>
-            <select value={cfg.dian_proveedor ?? 'factus'} onChange={(e) => set('dian_proveedor', e.target.value)}>
+            <select value={cfg.dian_proveedor ?? 'factus'} onChange={(e) => set('dian_proveedor', e.target.value)} disabled={central}>
               <option value="factus">Factus</option>
               <option value="alegra">Alegra</option>
               <option value="siigo">Siigo</option>
@@ -248,7 +325,7 @@ export default function Configuracion(): JSX.Element {
           </div>
           <div className="field">
             <label>Ambiente</label>
-            <select value={cfg.dian_ambiente ?? 'pruebas'} onChange={(e) => set('dian_ambiente', e.target.value)}>
+            <select value={cfg.dian_ambiente ?? 'pruebas'} onChange={(e) => set('dian_ambiente', e.target.value)} disabled={central}>
               <option value="pruebas">Pruebas / Habilitación</option>
               <option value="produccion">Producción</option>
             </select>
@@ -259,6 +336,7 @@ export default function Configuracion(): JSX.Element {
               value={cfg.dian_api_url ?? ''}
               onChange={(e) => set('dian_api_url', e.target.value)}
               placeholder="https://api.factus.com.co"
+              disabled={central}
             />
           </div>
           <div className="field">
@@ -268,6 +346,7 @@ export default function Configuracion(): JSX.Element {
               value={cfg.dian_api_token ?? ''}
               onChange={(e) => set('dian_api_token', e.target.value)}
               placeholder="Bearer token del proveedor"
+              disabled={central}
             />
           </div>
           <div className="field">
@@ -275,17 +354,19 @@ export default function Configuracion(): JSX.Element {
             <input
               value={cfg.dian_rango_numeracion ?? ''}
               onChange={(e) => set('dian_rango_numeracion', e.target.value)}
+              disabled={central}
             />
           </div>
           <div className="field">
             <label>Facturación electrónica</label>
-            <select value={cfg.dian_habilitado ?? '0'} onChange={(e) => set('dian_habilitado', e.target.value)}>
+            <select value={cfg.dian_habilitado ?? '0'} onChange={(e) => set('dian_habilitado', e.target.value)} disabled={central}>
               <option value="0">Deshabilitada (modo simulación)</option>
               <option value="1">Habilitada (emite facturas reales)</option>
             </select>
           </div>
         </div>
       </div>
+      )}
 
       <div style={{ marginTop: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
         <button className="btn-primary" onClick={guardar}>

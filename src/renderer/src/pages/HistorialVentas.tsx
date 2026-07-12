@@ -7,12 +7,14 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
   const [ventas, setVentas] = useState<any[]>([])
   const [detalle, setDetalle] = useState<any | null>(null)
   const [devolver, setDevolver] = useState<any | null>(null)
+  const [dianOn, setDianOn] = useState(false)
 
   async function cargar(): Promise<void> {
     setVentas((await window.api.ventasList(200)) as any[])
   }
   useEffect(() => {
     cargar()
+    window.api.configGetAll().then((c: any) => setDianOn(c.dian_habilitado === '1'))
   }, [])
 
   async function verDetalle(id: number): Promise<void> {
@@ -49,7 +51,7 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
               <th>Cliente</th>
               <th>Pago</th>
               <th className="text-right">Total</th>
-              <th>DIAN</th>
+              {dianOn && <th>DIAN</th>}
               <th></th>
             </tr>
           </thead>
@@ -65,7 +67,7 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
                 <td className="text-right">
                   <b>{cop(v.total)}</b>
                 </td>
-                <td>{badgeDian(v.dian_estado)}</td>
+                {dianOn && <td>{badgeDian(v.dian_estado)}</td>}
                 <td className="text-right">
                   <button className="btn-sm" onClick={() => verDetalle(v.id)}>
                     Ver
@@ -75,7 +77,7 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
             ))}
             {ventas.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 30 }}>
+                <td colSpan={dianOn ? 7 : 6} className="muted" style={{ textAlign: 'center', padding: 30 }}>
                   Aún no hay ventas registradas.
                 </td>
               </tr>
@@ -132,22 +134,24 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
               </div>
             </div>
 
-            <div className="card" style={{ marginTop: 14, background: 'var(--bg)' }}>
-              <b>Factura electrónica DIAN</b> {badgeDian(detalle.dian_estado)}
-              {detalle.dian_cufe && (
-                <div className="muted" style={{ fontSize: 11, marginTop: 6, wordBreak: 'break-all' }}>
-                  CUFE: {detalle.dian_cufe}
-                </div>
-              )}
-              {detalle.dian_mensaje && (
-                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  {detalle.dian_mensaje}
-                </div>
-              )}
-            </div>
+            {dianOn && (
+              <div className="card" style={{ marginTop: 14, background: 'var(--bg)' }}>
+                <b>Factura electrónica DIAN</b> {badgeDian(detalle.dian_estado)}
+                {detalle.dian_cufe && (
+                  <div className="muted" style={{ fontSize: 11, marginTop: 6, wordBreak: 'break-all' }}>
+                    CUFE: {detalle.dian_cufe}
+                  </div>
+                )}
+                {detalle.dian_mensaje && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    {detalle.dian_mensaje}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="modal-foot">
-              {detalle.dian_estado === 'pendiente' && (
+              {dianOn && detalle.dian_estado === 'pendiente' && (
                 <button className="btn-primary" onClick={() => facturar(detalle.id)}>
                   Emitir factura DIAN
                 </button>

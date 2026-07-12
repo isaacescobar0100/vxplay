@@ -247,6 +247,36 @@ function createSchema(): void {
       monto INTEGER NOT NULL
     );
 
+    -- Mesas y comandas (para bar / restaurante)
+    CREATE TABLE IF NOT EXISTS mesas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      zona TEXT,
+      estado TEXT NOT NULL DEFAULT 'libre',   -- libre | ocupada
+      orden INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS comandas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mesa_id INTEGER REFERENCES mesas(id),
+      usuario_id INTEGER REFERENCES usuarios(id),
+      fecha_apertura TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      fecha_cierre TEXT,
+      estado TEXT NOT NULL DEFAULT 'abierta',  -- abierta | cerrada
+      venta_id INTEGER REFERENCES ventas(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS comanda_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      comanda_id INTEGER NOT NULL REFERENCES comandas(id) ON DELETE CASCADE,
+      variante_id INTEGER REFERENCES variantes(id),
+      producto_nombre TEXT NOT NULL,
+      cantidad INTEGER NOT NULL,
+      precio_unitario INTEGER NOT NULL,
+      iva_porcentaje INTEGER NOT NULL DEFAULT 0,
+      notas TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_variantes_producto ON variantes(producto_id);
     CREATE INDEX IF NOT EXISTS idx_venta_items_venta ON venta_items(venta_id);
     CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha);
@@ -286,7 +316,8 @@ function seedInitialData(): void {
   const cfg = queryOne<{ n: number }>('SELECT COUNT(*) as n FROM config')
   if (cfg && cfg.n === 0) {
     const defaults: [string, string][] = [
-      ['tienda_nombre', 'Mi Tienda de Ropa'],
+      ['tipo_negocio', 'ropa'], // ropa | bar | restaurante | general
+      ['tienda_nombre', 'Mi Negocio'],
       ['tienda_nit', '900000000-0'],
       ['tienda_direccion', 'Calle 00 # 00-00'],
       ['tienda_telefono', '000 0000000'],

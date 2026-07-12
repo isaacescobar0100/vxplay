@@ -107,7 +107,7 @@ function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean):
 <body>
   ${barra}
   <div class="ticket">
-    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:${m.logo};max-height:70px;display:block;margin:0 auto 6px"/>` : ''}
+    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:${m.logo};max-height:70px;display:block;margin:0 auto 6px;background:#fff;filter:grayscale(1) contrast(2.6) brightness(1.05)"/>` : ''}
     <div class="center b big">${cfg.tienda_nombre ?? 'Mi Tienda'}</div>
     <div class="center">NIT: ${cfg.tienda_nit ?? ''}</div>
     <div class="center">${cfg.tienda_direccion ?? ''}</div>
@@ -211,7 +211,7 @@ function generarCierreHtml(d: any, cfg: Record<string, string>, preview: boolean
 </style></head><body>
   ${barra}
   <div class="ticket">
-    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:${m.logo};max-height:70px;display:block;margin:0 auto 6px"/>` : ''}
+    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:${m.logo};max-height:70px;display:block;margin:0 auto 6px;background:#fff;filter:grayscale(1) contrast(2.6) brightness(1.05)"/>` : ''}
     <div class="center b big">${cfg.tienda_nombre ?? 'Mi Tienda'}</div>
     <div class="center">CIERRE DE CAJA (Z)</div>
     <div class="center">Sesión #${d.numero}</div>
@@ -274,6 +274,43 @@ export async function imprimirCierre(
       }
     )
   })
+}
+
+/** Abre una ventana con las etiquetas de código de barras para imprimir. */
+export async function imprimirEtiquetas(cuerpoHtml: string): Promise<{ ok: boolean }> {
+  const html = `<!doctype html><html><head><meta charset="utf-8"/>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',sans-serif;background:#334155;padding:0}
+  .toolbar{position:sticky;top:0;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:space-between;padding:12px 18px;font-size:14px}
+  .toolbar button{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;margin-left:8px;cursor:pointer;background:#6366f1;color:#fff}
+  .toolbar button.close{background:#334155}
+  .hoja{background:#fff;color:#000;margin:16px auto;padding:6mm;width:210mm;max-width:96%;display:flex;flex-wrap:wrap;gap:3mm;align-content:flex-start}
+  .etq{border:1px dashed #bbb;width:48mm;padding:3mm 2mm;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .etq .nom{font-size:10px;font-weight:700;line-height:1.1;margin-bottom:1mm;max-height:24px;overflow:hidden}
+  .etq .precio{font-size:13px;font-weight:800;margin-bottom:1mm}
+  .etq svg{max-width:44mm}
+  .etq .cod{font-family:'Courier New',monospace;font-size:9px;letter-spacing:1px;margin-top:1px}
+  @media print{ body{background:#fff} .no-print{display:none!important} .hoja{margin:0;width:auto} .etq{border:none} }
+</style></head><body>
+  <div class="toolbar no-print">
+    <span>Etiquetas de código de barras</span>
+    <div>
+      <button onclick="window.print()">Imprimir</button>
+      <button class="close" onclick="window.close()">Cerrar</button>
+    </div>
+  </div>
+  <div class="hoja">${cuerpoHtml}</div>
+</body></html>`
+  const win = new BrowserWindow({
+    width: 900,
+    height: 700,
+    title: 'Etiquetas',
+    autoHideMenuBar: true,
+    webPreferences: { sandbox: true }
+  })
+  await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+  return { ok: true }
 }
 
 /** Lista las impresoras instaladas en el sistema (para la configuracion). */

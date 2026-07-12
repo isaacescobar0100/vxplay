@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VxPlay · Panel Superadmin</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+      :root {
+        --bg: #0f172a; --panel: #1e293b; --panel2: #273549; --border: #334155;
+        --text: #e2e8f0; --muted: #94a3b8; --primary: #6366f1; --primaryh: #4f46e5;
+        --green: #22c55e; --red: #ef4444; --amber: #f59e0b;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+      button { font-family: inherit; cursor: pointer; border: none; border-radius: 8px; padding: 9px 14px; font-weight: 600; background: var(--panel2); color: var(--text); }
+      button:hover { background: var(--border); }
+      .primary { background: var(--primary); color: #fff; } .primary:hover { background: var(--primaryh); }
+      .green { background: var(--green); color: #fff; } .red { background: var(--red); color: #fff; }
+      .sm { padding: 6px 10px; font-size: 12px; }
+      input, select { font-family: inherit; font-size: 14px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; width: 100%; outline: none; }
+      input:focus, select:focus { border-color: var(--primary); }
+      label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+      .wrap { max-width: 1150px; margin: 0 auto; padding: 24px; }
+      .brand { font-size: 22px; font-weight: 800; } .brand span { color: var(--primary); }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+      .login { max-width: 380px; margin: 8vh auto; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+      th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+      td.r, th.r { text-align: right; }
+      .badge { padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+      .b-green { background: rgba(34,197,94,.15); color: #4ade80; }
+      .b-red { background: rgba(239,68,68,.15); color: #f87171; }
+      .b-amber { background: rgba(245,158,11,.15); color: #fbbf24; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
+      .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: 620px; max-height: 90vh; overflow: auto; }
+      .foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+      .muted { color: var(--muted); } .err { color: var(--red); font-size: 13px; margin-top: 8px; }
+      h2 { margin-bottom: 6px; } .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+      .sect { margin-top: 14px; font-weight: 700; color: var(--primary); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      // ==== CONFIG (mismos valores públicos del proyecto) ====
+      const SUPABASE_URL = 'https://fivmoaytipcqdgchfbdf.supabase.co'
+      const SUPABASE_ANON =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpdm1vYXl0aXBjcWRnY2hmYmRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3ODQ0NjgsImV4cCI6MjA5OTM2MDQ2OH0.53tMbosXO6_mRZML6ypU6oJ-YS_cESb68TxkPdeaSKc'
+      const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON)
+      const app = document.getElementById('app')
+      const cop = (n) => '$' + Number(n || 0).toLocaleString('es-CO')
+      const esc = (s) => (s == null ? '' : String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;'))
+
+      // ==== LOGIN ====
+      function renderLogin(error) {
+        app.innerHTML = `
+          <div class="wrap"><div class="card login">
+            <div class="brand" style="text-align:center;margin-bottom:4px">Vx<span>Play</span></div>
+            <p class="muted" style="text-align:center;margin-bottom:18px">Panel Superadmin</p>
+            <label>Correo</label><input id="email" type="email" />
+            <label>Contraseña</label><input id="pass" type="password" />
+            ${error ? `<p class="err">${error}</p>` : ''}
+            <button class="primary" style="width:100%;margin-top:16px" id="btnLogin">Entrar</button>
+          </div></div>`
+        document.getElementById('btnLogin').onclick = async () => {
+          const email = document.getElementById('email').value
+          const password = document.getElementById('pass').value
+          const { error } = await sb.auth.signInWithPassword({ email, password })
+          if (error) renderLogin('Correo o contraseña incorrectos')
+          else init()
+        }
+        document.getElementById('pass').addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') document.getElementById('btnLogin').click()
+        })
+      }
+
+      // ==== DASHBOARD ====
+      let TIENDAS = []
+      async function cargar() {
+        const { data, error } = await sb.from('tiendas').select('*').order('creado_en', { ascending: false })
+        if (error) { alert('Error: ' + error.message); return }
+        TIENDAS = data || []
+        renderDashboard()
+      }
+
+      function badgeEstado(e) {
+        const map = { activa: 'b-green', suspendida: 'b-red', vencida: 'b-amber' }
+        return `<span class="badge ${map[e] || 'b-amber'}">${e}</span>`
+      }
+
+      function renderDashboard() {
+        const filas = TIENDAS.map((t) => `
+          <tr>
+            <td><b>${esc(t.nombre)}</b><div class="muted" style="font-size:11px">${esc(t.tipo_negocio || 'ropa')}</div></td>
+            <td><code>${esc(t.licencia)}</code></td>
+            <td>${badgeEstado(t.estado)}</td>
+            <td>${t.fecha_vencimiento || '—'}</td>
+            <td class="muted" style="font-size:11px">${t.ultimo_acceso ? new Date(t.ultimo_acceso).toLocaleString('es-CO') : 'nunca'}</td>
+            <td class="muted" style="font-size:11px">${t.ultimo_respaldo ? new Date(t.ultimo_respaldo).toLocaleString('es-CO') : '⚠️ nunca'}</td>
+            <td style="text-align:right;white-space:nowrap">
+              <button class="sm" onclick="editar('${t.id}')">Editar</button>
+              ${t.estado === 'suspendida'
+                ? `<button class="sm green" onclick="setEstado('${t.id}','activa')">Activar</button>`
+                : `<button class="sm red" onclick="setEstado('${t.id}','suspendida')">Suspender</button>`}
+              <button class="sm red" onclick="eliminar('${t.id}','${esc(t.nombre)}')">Eliminar</button>
+            </td>
+          </tr>`).join('')
+
+        app.innerHTML = `
+          <div class="wrap">
+            <div class="topbar">
+              <div class="brand">Vx<span>Play</span> · Superadmin</div>
+              <div>
+                <button onclick="verVentas()">📊 Ventas</button>
+                <button class="primary" onclick="editar('')">+ Nueva tienda</button>
+                <button class="sm" onclick="cerrarSesion()">Salir</button>
+              </div>
+            </div>
+            <div class="card" style="padding:0">
+              <table>
+                <thead><tr><th>Tienda</th><th>Licencia</th><th>Estado</th><th>Vence</th><th>Último acceso</th><th>Último respaldo</th><th></th></tr></thead>
+                <tbody>${filas || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Sin tiendas. Crea la primera.</td></tr>'}</tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top:14px;font-size:12px">${TIENDAS.length} tienda(s). Los cambios se aplican en el POS de cada tienda al validar su licencia (al abrir o cada 2 min).</p>
+          </div>`
+      }
+
+      // ==== EDITAR / CREAR ====
+      window.editar = function (id) {
+        const t = TIENDAS.find((x) => x.id === id) || { estado: 'activa', tipo_negocio: 'ropa', dian_habilitado: false }
+        const f = (k, v) => (t[k] != null ? t[k] : v || '')
+        app.insertAdjacentHTML('beforeend', `
+          <div class="overlay" id="ov">
+            <div class="modal">
+              <h2>${id ? 'Editar' : 'Nueva'} tienda</h2>
+              <p class="sub">Lo que definas aquí se aplica automáticamente en el POS de esa tienda.</p>
+              <div class="grid2">
+                <div><label>Nombre de la tienda *</label><input id="f_nombre" value="${esc(f('nombre'))}" /></div>
+                <div><label>Licencia (código único) *</label><input id="f_licencia" value="${esc(f('licencia'))}" placeholder="TIENDA-001" /></div>
+                <div><label>Estado</label><select id="f_estado">
+                  <option ${t.estado==='activa'?'selected':''}>activa</option>
+                  <option ${t.estado==='suspendida'?'selected':''}>suspendida</option>
+                </select></div>
+                <div><label>Tipo de negocio</label><select id="f_tipo">
+                  ${['ropa','general','bar','restaurante'].map(x=>`<option ${t.tipo_negocio===x?'selected':''}>${x}</option>`).join('')}
+                </select></div>
+                <div><label>Vence (opcional)</label><input id="f_vence" type="date" value="${f('fecha_vencimiento')}" /></div>
+                <div><label>NIT</label><input id="f_nit" value="${esc(f('nit'))}" /></div>
+                <div><label>Dirección</label><input id="f_dir" value="${esc(f('direccion'))}" /></div>
+                <div><label>Ciudad</label><input id="f_ciudad" value="${esc(f('ciudad'))}" /></div>
+                <div><label>Teléfono</label><input id="f_tel" value="${esc(f('telefono'))}" /></div>
+                <div><label>Contacto</label><input id="f_contacto" value="${esc(f('contacto'))}" /></div>
+              </div>
+              <div class="sect">Acceso al POS (login de la tienda)</div>
+              <div class="grid2">
+                <div><label>Usuario</label><input id="f_pos_user" value="${esc(f('pos_usuario','admin'))}" placeholder="admin" /></div>
+                <div><label>Contraseña ${id ? '(vacío = no cambiar)' : ''}</label><input id="f_pos_pass" value="${esc(f('pos_password'))}" placeholder="${id ? '••••••' : 'clave de la tienda'}" /></div>
+              </div>
+              <div class="sect">Facturación DIAN (credenciales del proveedor)</div>
+              <div class="grid2">
+                <div><label>DIAN habilitada</label><select id="f_dian_hab">
+                  <option value="false" ${!t.dian_habilitado?'selected':''}>No</option>
+                  <option value="true" ${t.dian_habilitado?'selected':''}>Sí</option>
+                </select></div>
+                <div><label>Proveedor</label><input id="f_dian_prov" value="${esc(f('dian_proveedor','factus'))}" /></div>
+                <div><label>URL API</label><input id="f_dian_url" value="${esc(f('dian_api_url'))}" /></div>
+                <div><label>Token API</label><input id="f_dian_token" value="${esc(f('dian_api_token'))}" /></div>
+                <div><label>Rango numeración</label><input id="f_dian_rango" value="${esc(f('dian_rango'))}" /></div>
+              </div>
+              <div><label>Notas</label><input id="f_notas" value="${esc(f('notas'))}" /></div>
+              <div class="foot">
+                <button onclick="document.getElementById('ov').remove()">Cancelar</button>
+                <button class="primary" onclick="guardar('${id}')">Guardar</button>
+              </div>
+            </div>
+          </div>`)
+      }
+
+      window.guardar = async function (id) {
+        const val = (x) => document.getElementById(x).value.trim()
+        const row = {
+          nombre: val('f_nombre'), licencia: val('f_licencia'), estado: val('f_estado'),
+          tipo_negocio: val('f_tipo'), fecha_vencimiento: val('f_vence') || null,
+          nit: val('f_nit'), direccion: val('f_dir'), ciudad: val('f_ciudad'),
+          telefono: val('f_tel'), contacto: val('f_contacto'), notas: val('f_notas'),
+          dian_habilitado: val('f_dian_hab') === 'true', dian_proveedor: val('f_dian_prov'),
+          dian_api_url: val('f_dian_url'), dian_api_token: val('f_dian_token'), dian_rango: val('f_dian_rango'),
+          pos_usuario: val('f_pos_user') || 'admin'
+        }
+        const posPass = val('f_pos_pass')
+        if (posPass) row.pos_password = posPass // solo si escribió una (al editar, vacío = no cambiar)
+        if (!row.nombre || !row.licencia) { alert('Nombre y licencia son obligatorios'); return }
+        if (!id && !posPass) { alert('Define la contraseña de acceso al POS'); return }
+        let error
+        if (id) ({ error } = await sb.from('tiendas').update(row).eq('id', id))
+        else ({ error } = await sb.from('tiendas').insert(row))
+        if (error) { alert('Error: ' + error.message); return }
+        document.getElementById('ov').remove()
+        cargar()
+      }
+
+      window.setEstado = async function (id, estado) {
+        const { error } = await sb.from('tiendas').update({ estado }).eq('id', id)
+        if (error) alert('Error: ' + error.message)
+        else cargar()
+      }
+
+      window.eliminar = async function (id, nombre) {
+        if (!confirm('¿Eliminar la tienda "' + nombre + '"?\n\nSe borra su licencia. El POS de esa tienda quedará sin licencia válida.')) return
+        const { error } = await sb.from('tiendas').delete().eq('id', id)
+        if (error) alert('Error: ' + error.message)
+        else cargar()
+      }
+
+      // ==== DASHBOARD DE VENTAS ====
+      function ymd(d) { const o = d.getTimezoneOffset(); return new Date(d.getTime() - o * 60000).toISOString().slice(0, 10) }
+
+      window.verVentas = async function () {
+        const { data, error } = await sb.from('resumen_ventas').select('*')
+        if (error) { alert('Error: ' + error.message + '\\n(¿Corriste el SQL de resumen_ventas?)'); return }
+        const rows = data || []
+
+        const hoy = ymd(new Date())
+        const hace7 = ymd(new Date(Date.now() - 6 * 86400000))
+        const mes = hoy.slice(0, 7) // YYYY-MM
+
+        // agrupar por licencia
+        const porTienda = {}
+        for (const r of rows) {
+          const k = r.licencia
+          if (!porTienda[k]) porTienda[k] = { nombre: r.tienda_nombre || k, hoy: 0, semana: 0, mes: 0, total: 0, num: 0 }
+          const t = porTienda[k]
+          t.total += r.total; t.num += r.num_ventas
+          if (r.fecha === hoy) t.hoy += r.total
+          if (r.fecha >= hace7) t.semana += r.total
+          if (String(r.fecha).slice(0, 7) === mes) t.mes += r.total
+        }
+        const lista = Object.values(porTienda).sort((a, b) => b.mes - a.mes)
+        const g = lista.reduce((a, t) => ({ hoy: a.hoy + t.hoy, semana: a.semana + t.semana, mes: a.mes + t.mes, total: a.total + t.total }), { hoy: 0, semana: 0, mes: 0, total: 0 })
+
+        const filas = lista.map((t) => `
+          <tr>
+            <td><b>${esc(t.nombre)}</b></td>
+            <td class="r" style="color:#4ade80">${cop(t.hoy)}</td>
+            <td class="r">${cop(t.semana)}</td>
+            <td class="r"><b>${cop(t.mes)}</b></td>
+            <td class="r muted">${cop(t.total)}</td>
+            <td class="r muted">${t.num}</td>
+          </tr>`).join('')
+
+        app.innerHTML = `
+          <div class="wrap">
+            <div class="topbar">
+              <div class="brand">Vx<span>Play</span> · Ventas</div>
+              <div><button onclick="cargar()">← Tiendas</button><button class="sm" onclick="cerrarSesion()">Salir</button></div>
+            </div>
+            <div class="grid2" style="grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+              <div class="card"><div class="muted">Hoy (todas)</div><div style="font-size:24px;font-weight:800;color:#4ade80">${cop(g.hoy)}</div></div>
+              <div class="card"><div class="muted">Últimos 7 días</div><div style="font-size:24px;font-weight:800">${cop(g.semana)}</div></div>
+              <div class="card"><div class="muted">Este mes</div><div style="font-size:24px;font-weight:800">${cop(g.mes)}</div></div>
+              <div class="card"><div class="muted">Tiendas activas</div><div style="font-size:24px;font-weight:800">${lista.length}</div></div>
+            </div>
+            <div class="card" style="padding:0">
+              <table>
+                <thead><tr><th>Tienda</th><th class="r">Hoy</th><th class="r">7 días</th><th class="r">Este mes</th><th class="r">Total 30d</th><th class="r">N° ventas</th></tr></thead>
+                <tbody>${filas || '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">Aún no hay ventas reportadas. Las tiendas suben su resumen al cerrar caja, al abrir y cada 6h.</td></tr>'}</tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top:12px;font-size:12px">Resumen de los últimos 30 días. Cada tienda sube sus totales automáticamente (no datos sensibles).</p>
+          </div>`
+      }
+
+      window.cerrarSesion = async function () { await sb.auth.signOut(); renderLogin() }
+
+      // ==== INIT ====
+      async function init() {
+        const { data } = await sb.auth.getSession()
+        if (data.session) cargar()
+        else renderLogin()
+      }
+      init()
+    </script>
+  </body>
+</html>

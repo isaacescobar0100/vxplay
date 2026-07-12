@@ -17,7 +17,7 @@ interface Producto {
   iva_porcentaje: number
   variantes: Variante[]
 }
-interface CartItem {
+export interface CartItem {
   key: string
   variante_id: number
   producto_nombre: string
@@ -112,13 +112,12 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
     )
   }
 
-  async function buscarCodigo(e: React.FormEvent): Promise<void> {
-    e.preventDefault()
-    const codigo = codigoRef.current?.value.trim()
-    if (!codigo) return
-    const v: any = await window.api.buscarPorCodigo(codigo)
+  async function procesarCodigo(codigo: string): Promise<void> {
+    const c = (codigo || '').trim()
+    if (!c) return
+    const v: any = await window.api.buscarPorCodigo(c)
     if (!v) {
-      alert('Código no encontrado: ' + codigo)
+      alert('Código no encontrado: ' + c)
     } else {
       agregarVariante(
         {
@@ -131,8 +130,45 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
         { id: v.id, talla: v.talla, color: v.color, stock: v.stock }
       )
     }
+  }
+
+  async function buscarCodigo(e: React.FormEvent): Promise<void> {
+    e.preventDefault()
+    await procesarCodigo(codigoRef.current?.value ?? '')
     if (codigoRef.current) codigoRef.current.value = ''
   }
+
+  // Lector GLOBAL de código de barras: la pistola "teclea" muy rápido y termina
+  // en Enter. Detectamos esa ráfaga en cualquier parte del POS (sin depender del
+  // foco) y agregamos el producto. El tecleo humano (más lento) no se afecta.
+  useEffect(() => {
+    let buffer = ''
+    let last = 0
+    const onKey = (e: KeyboardEvent): void => {
+      if (checkout || pickVariante) return // no interferir con los modales
+      const now = Date.now()
+      if (e.key === 'Enter') {
+        if (buffer.length >= 3 && now - last < 120) {
+          e.preventDefault()
+          const codigo = buffer
+          buffer = ''
+          procesarCodigo(codigo)
+        } else {
+          buffer = ''
+        }
+        return
+      }
+      if (e.key.length === 1) {
+        if (now - last > 120) buffer = '' // gap grande = tecleo humano → reinicia
+        buffer += e.key
+        if (buffer.length >= 2 && now - last < 120) e.preventDefault() // ráfaga = pistola
+        last = now
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkout, pickVariante])
 
   const subtotal = cart.reduce(
     (s, i) => s + Math.round((i.precio_unitario * i.cantidad) / (1 + i.iva_porcentaje / 100)),
@@ -309,14 +345,15 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
 }
 
 // ---------- Checkout / cobro ----------
-function Checkout({
+export function Checkout({
   cart,
   subtotal,
   iva,
   total,
   usuario,
   onCancel,
-  onDone
+  onDone,
+  onCrear
 }: {
   cart: CartItem[]
   subtotal: number
@@ -325,6 +362,7 @@ function Checkout({
   usuario: Usuario
   onCancel: () => void
   onDone: () => void
+  onCrear?: (venta: any) => Promise<any>
 }): JSX.Element {
   const [metodo, setMetodo] = useState('efectivo')
   const [recibido, setRecibido] = useState<number>(0)
@@ -332,6 +370,12 @@ function Checkout({
   const [clientes, setClientes] = useState<any[]>([])
   const [clienteId, setClienteId] = useState<number | null>(null)
   const [procesando, setProcesando] = useState(false)
+
+  const [dianOn, setDianOn] = useState(false)
+
+  useEffect(() => {
+    window.api.configGetAll().then((c: any) => setDianOn(c.dian_habilitado === '1'))
+  }, [])
 
   // Descuento y pago mixto
   const [descuento, setDescuento] = useState<number>(0)
@@ -413,7 +457,7 @@ function Checkout({
     }
 
     setProcesando(true)
-    const venta: any = await window.api.ventasCrear({
+    const payload = {
       usuario_id: usuario.id,
       cliente_id: clienteId,
       subtotal: subtotalFinal,
@@ -434,7 +478,9 @@ function Checkout({
         iva_porcentaje: i.iva_porcentaje,
         subtotal: i.precio_unitario * i.cantidad
       }))
-    })
+    }
+
+    const venta: any = onCrear ? await onCrear(payload) : await window.api.ventasCrear(payload)
 
     if (facturarDian) {
       const r: any = await window.api.facturarDian(venta.id)
@@ -659,15 +705,17 @@ function Checkout({
           </div>
         )}
 
-        <label style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            type="checkbox"
-            style={{ width: 'auto' }}
-            checked={facturarDian}
-            onChange={(e) => setFacturarDian(e.target.checked)}
-          />
-          Emitir factura electrónica DIAN
-        </label>
+        {dianOn && (
+          <label style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={facturarDian}
+              onChange={(e) => setFacturarDian(e.target.checked)}
+            />
+            Emitir factura electrónica DIAN
+          </label>
+        )}
 
         <div className="card" style={{ marginTop: 16, background: 'var(--bg)' }}>
           {descuento > 0 && (

@@ -2,9 +2,11 @@ import { ipcMain, dialog, app } from 'electron'
 import { writeFileSync } from 'fs'
 import { query, queryOne, insert, run, transaction, persist, getDb } from './db'
 import { facturarVenta } from './dian'
-import { imprimirTicket, imprimirCierre, listarImpresoras } from './printer'
+import { imprimirTicket, imprimirCierre, listarImpresoras, imprimirEtiquetas } from './printer'
 import { hashPassword, verifyPassword } from './auth'
 import { crearBackupAutomatico, listarBackups, exportarDb, importarDb } from './backup'
+import { estadoLicencia, activarLicencia } from './licencia'
+import { subirRespaldo, bajarRespaldo, ultimoRespaldo, subirResumen } from './respaldoNube'
 import type { SqlValue } from 'sql.js'
 
 /**
@@ -14,6 +16,28 @@ import type { SqlValue } from 'sql.js'
 export function registerHandlers(): void {
   // Versión de la app (para mostrarla en la interfaz)
   ipcMain.handle('app:version', () => app.getVersion())
+
+  // ---------- LICENCIA ----------
+  ipcMain.handle('licencia:estado', () => estadoLicencia())
+  ipcMain.handle('licencia:activar', (_e, codigo: string) => activarLicencia(codigo))
+  ipcMain.handle('licencia:cambiar', () => {
+    run(
+      "DELETE FROM config WHERE clave IN ('licencia_codigo','licencia_ultimo_ok','licencia_nombre','config_central')"
+    )
+    return true
+  })
+
+  // ---------- RESPALDO EN LA NUBE ----------
+  ipcMain.handle('nube:subir', () => subirRespaldo())
+  ipcMain.handle('nube:ultimo', () => ultimoRespaldo())
+  ipcMain.handle('nube:restaurar', async (_e, licencia?: string) => {
+    const r = await bajarRespaldo(licencia)
+    if (r.ok) {
+      app.relaunch()
+      app.exit(0)
+    }
+    return r
+  })
 
   // ---------- AUTENTICACION ----------
   ipcMain.handle('auth:login', (_e, usuario: string, password: string) => {
@@ -280,90 +304,7 @@ export function registerHandlers(): void {
   })
 
   // ---------- VENTAS ----------
-  ipcMain.handle('ventas:crear', async (_e, venta: any) => {
-    let ventaId = 0
-    let numero = ''
-
-    const sesion = sesionAbierta()
-    if (!sesion) {
-      throw new Error('CAJA_CERRADA')
-    }
-
-    transaction(() => {
-      // numero consecutivo simple
-      const ultimo = queryOne<{ n: number }>('SELECT COUNT(*) as n FROM ventas')
-      const consecutivo = (ultimo?.n ?? 0) + 1
-      numero = 'V' + String(consecutivo).padStart(6, '0')
-
-      getDb().run(
-        `INSERT INTO ventas (numero, cliente_id, usuario_id, sesion_id, subtotal, descuento, iva, total,
-           metodo_pago, pago_recibido, cambio, estado)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
-        [
-          numero,
-          venta.cliente_id ?? null,
-          venta.usuario_id ?? null,
-          sesion.id,
-          venta.subtotal,
-          venta.descuento ?? 0,
-          venta.iva ?? 0,
-          venta.total,
-          venta.metodo_pago ?? 'efectivo',
-          venta.pago_recibido ?? venta.total,
-          venta.cambio ?? 0
-        ]
-      )
-      ventaId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
-
-      // Registrar los pagos (uno o varios en pago mixto)
-      const pagos: any[] =
-        Array.isArray(venta.pagos) && venta.pagos.length
-          ? venta.pagos
-          : [{ metodo: venta.metodo_pago ?? 'efectivo', monto: venta.total }]
-      for (const pago of pagos) {
-        if (pago.monto > 0) {
-          getDb().run('INSERT INTO venta_pagos (venta_id, metodo, monto) VALUES (?,?,?)', [
-            ventaId,
-            pago.metodo,
-            pago.monto
-          ])
-        }
-      }
-
-      for (const item of venta.items as any[]) {
-        getDb().run(
-          `INSERT INTO venta_items (venta_id, variante_id, producto_nombre, talla, color,
-             cantidad, precio_unitario, iva_porcentaje, subtotal)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
-          [
-            ventaId,
-            item.variante_id ?? null,
-            item.producto_nombre,
-            item.talla ?? null,
-            item.color ?? null,
-            item.cantidad,
-            item.precio_unitario,
-            item.iva_porcentaje ?? 0,
-            item.subtotal
-          ]
-        )
-        // descontar stock
-        if (item.variante_id) {
-          getDb().run('UPDATE variantes SET stock = stock - ? WHERE id = ?', [
-            item.cantidad,
-            item.variante_id
-          ])
-          getDb().run(
-            "INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo) VALUES (?, 'venta', ?, ?)",
-            [item.variante_id, -item.cantidad, 'Venta ' + numero]
-          )
-        }
-      }
-    })
-
-    const ventaCompleta = obtenerVenta(ventaId)
-    return ventaCompleta
-  })
+  ipcMain.handle('ventas:crear', (_e, venta: any) => registrarVenta(venta))
 
   ipcMain.handle('ventas:get', (_e, id: number) => obtenerVenta(id))
 
@@ -394,6 +335,91 @@ export function registerHandlers(): void {
     return resultado
   })
 
+  // ---------- MESAS / COMANDAS ----------
+  ipcMain.handle('mesas:list', () =>
+    query(
+      `SELECT m.*,
+         c.id as comanda_id,
+         COALESCE((SELECT SUM(ci.precio_unitario * ci.cantidad)
+                   FROM comanda_items ci WHERE ci.comanda_id = c.id), 0) as total
+       FROM mesas m
+       LEFT JOIN comandas c ON c.mesa_id = m.id AND c.estado = 'abierta'
+       ORDER BY m.orden, m.id`
+    )
+  )
+
+  ipcMain.handle('mesas:crear', (_e, nombre: string, zona?: string) =>
+    insert('INSERT INTO mesas (nombre, zona) VALUES (?,?)', [nombre, zona ?? null])
+  )
+
+  ipcMain.handle('mesas:eliminar', (_e, id: number) => {
+    const m = queryOne<any>('SELECT estado FROM mesas WHERE id = ?', [id])
+    if (m && m.estado === 'ocupada') throw new Error('No se puede eliminar una mesa ocupada')
+    run('DELETE FROM mesas WHERE id = ?', [id])
+    return true
+  })
+
+  // Obtiene la comanda abierta de una mesa (con sus items). La crea si no existe.
+  ipcMain.handle('comanda:abrir', (_e, mesaId: number, usuarioId: number) => {
+    let comanda = queryOne<any>("SELECT * FROM comandas WHERE mesa_id = ? AND estado = 'abierta'", [mesaId])
+    if (!comanda) {
+      const id = insert('INSERT INTO comandas (mesa_id, usuario_id) VALUES (?,?)', [mesaId, usuarioId ?? null])
+      run("UPDATE mesas SET estado = 'ocupada' WHERE id = ?", [mesaId])
+      comanda = queryOne<any>('SELECT * FROM comandas WHERE id = ?', [id])
+    }
+    comanda.items = query('SELECT * FROM comanda_items WHERE comanda_id = ?', [comanda.id])
+    return comanda
+  })
+
+  ipcMain.handle('comanda:agregarItem', (_e, comandaId: number, item: any) => {
+    insert(
+      `INSERT INTO comanda_items (comanda_id, variante_id, producto_nombre, cantidad, precio_unitario, iva_porcentaje, notas)
+       VALUES (?,?,?,?,?,?,?)`,
+      [
+        comandaId,
+        item.variante_id ?? null,
+        item.producto_nombre,
+        item.cantidad,
+        item.precio_unitario,
+        item.iva_porcentaje ?? 0,
+        item.notas ?? null
+      ]
+    )
+    return query('SELECT * FROM comanda_items WHERE comanda_id = ?', [comandaId])
+  })
+
+  ipcMain.handle('comanda:cambiarCantidad', (_e, itemId: number, cantidad: number) => {
+    if (cantidad <= 0) run('DELETE FROM comanda_items WHERE id = ?', [itemId])
+    else run('UPDATE comanda_items SET cantidad = ? WHERE id = ?', [cantidad, itemId])
+    return true
+  })
+
+  // Cobrar una comanda: la convierte en venta, cierra la comanda y libera la mesa.
+  ipcMain.handle('comanda:cobrar', (_e, comandaId: number, pago: any) => {
+    const comanda = queryOne<any>('SELECT * FROM comandas WHERE id = ?', [comandaId])
+    if (!comanda) throw new Error('Comanda no encontrada')
+    const items = query<any>('SELECT * FROM comanda_items WHERE comanda_id = ?', [comandaId])
+    if (items.length === 0) throw new Error('La mesa no tiene consumos')
+
+    const ventaItems = items.map((it) => ({
+      variante_id: it.variante_id,
+      producto_nombre: it.producto_nombre,
+      cantidad: it.cantidad,
+      precio_unitario: it.precio_unitario,
+      iva_porcentaje: it.iva_porcentaje,
+      subtotal: it.precio_unitario * it.cantidad
+    }))
+
+    const venta = registrarVenta({ ...pago, items: ventaItems })
+
+    run("UPDATE comandas SET estado = 'cerrada', fecha_cierre = datetime('now','localtime'), venta_id = ? WHERE id = ?", [
+      venta.id,
+      comandaId
+    ])
+    run("UPDATE mesas SET estado = 'libre' WHERE id = ?", [comanda.mesa_id])
+    return venta
+  })
+
   // ---------- IMPRESION ----------
   ipcMain.handle('imprimir:ticket', async (_e, ventaId: number) => {
     const venta = obtenerVenta(ventaId)
@@ -402,6 +428,7 @@ export function registerHandlers(): void {
   })
 
   ipcMain.handle('imprimir:listar', () => listarImpresoras())
+  ipcMain.handle('imprimir:etiquetas', (_e, html: string) => imprimirEtiquetas(html))
 
   // ---------- RESPALDOS ----------
   ipcMain.handle('backup:crear', () => {
@@ -444,6 +471,9 @@ export function registerHandlers(): void {
          monto_esperado = ?, monto_contado = ?, diferencia = ?, estado = 'cerrada', notas = ? WHERE id = ?`,
       [usuarioId ?? null, esperado, montoContado ?? 0, diferencia, notas ?? null, sesionId]
     )
+    // Respaldo + resumen a la nube al cerrar caja (en segundo plano, no bloquea)
+    subirRespaldo().catch(() => {})
+    subirResumen().catch(() => {})
     return { ...r, monto_contado: montoContado, diferencia }
   })
 
@@ -783,6 +813,80 @@ export function registerHandlers(): void {
 }
 
 // ---- helpers ----
+
+/** Crea una venta completa (usado por el POS y por el cobro de mesas). */
+function registrarVenta(venta: any): any {
+  const sesion = sesionAbierta()
+  if (!sesion) throw new Error('CAJA_CERRADA')
+
+  let ventaId = 0
+  let numero = ''
+  transaction(() => {
+    const ultimo = queryOne<{ n: number }>('SELECT COUNT(*) as n FROM ventas')
+    numero = 'V' + String((ultimo?.n ?? 0) + 1).padStart(6, '0')
+
+    getDb().run(
+      `INSERT INTO ventas (numero, cliente_id, usuario_id, sesion_id, subtotal, descuento, iva, total,
+         metodo_pago, pago_recibido, cambio, estado)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
+      [
+        numero,
+        venta.cliente_id ?? null,
+        venta.usuario_id ?? null,
+        sesion.id,
+        venta.subtotal,
+        venta.descuento ?? 0,
+        venta.iva ?? 0,
+        venta.total,
+        venta.metodo_pago ?? 'efectivo',
+        venta.pago_recibido ?? venta.total,
+        venta.cambio ?? 0
+      ]
+    )
+    ventaId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
+
+    const pagos: any[] =
+      Array.isArray(venta.pagos) && venta.pagos.length
+        ? venta.pagos
+        : [{ metodo: venta.metodo_pago ?? 'efectivo', monto: venta.total }]
+    for (const pago of pagos) {
+      if (pago.monto > 0) {
+        getDb().run('INSERT INTO venta_pagos (venta_id, metodo, monto) VALUES (?,?,?)', [
+          ventaId,
+          pago.metodo,
+          pago.monto
+        ])
+      }
+    }
+
+    for (const item of venta.items as any[]) {
+      getDb().run(
+        `INSERT INTO venta_items (venta_id, variante_id, producto_nombre, talla, color,
+           cantidad, precio_unitario, iva_porcentaje, subtotal)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [
+          ventaId,
+          item.variante_id ?? null,
+          item.producto_nombre,
+          item.talla ?? null,
+          item.color ?? null,
+          item.cantidad,
+          item.precio_unitario,
+          item.iva_porcentaje ?? 0,
+          item.subtotal
+        ]
+      )
+      if (item.variante_id) {
+        getDb().run('UPDATE variantes SET stock = stock - ? WHERE id = ?', [item.cantidad, item.variante_id])
+        getDb().run(
+          "INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo) VALUES (?, 'venta', ?, ?)",
+          [item.variante_id, -item.cantidad, 'Venta ' + numero]
+        )
+      }
+    }
+  })
+  return obtenerVenta(ventaId)
+}
 
 function obtenerVenta(id: number): any {
   const venta = queryOne(

@@ -8,6 +8,14 @@ const api = {
   // Version de la app
   appVersion: () => ipcRenderer.invoke('app:version'),
 
+  // Licencia
+  licenciaEstado: () => ipcRenderer.invoke('licencia:estado'),
+  licenciaActivar: (codigo: string) => ipcRenderer.invoke('licencia:activar', codigo),
+  licenciaCambiar: () => ipcRenderer.invoke('licencia:cambiar'),
+  nubeSubir: () => ipcRenderer.invoke('nube:subir'),
+  nubeUltimo: () => ipcRenderer.invoke('nube:ultimo'),
+  nubeRestaurar: (licencia?: string) => ipcRenderer.invoke('nube:restaurar', licencia),
+
   // Autenticacion
   login: (usuario: string, password: string) => ipcRenderer.invoke('auth:login', usuario, password),
 
@@ -61,9 +69,23 @@ const api = {
   devolucionesPorVenta: (ventaId: number) => ipcRenderer.invoke('devoluciones:porVenta', ventaId),
   devolucionesCrear: (data: unknown) => ipcRenderer.invoke('devoluciones:crear', data),
 
+  // Mesas / comandas
+  mesasList: () => ipcRenderer.invoke('mesas:list'),
+  mesasCrear: (nombre: string, zona?: string) => ipcRenderer.invoke('mesas:crear', nombre, zona),
+  mesasEliminar: (id: number) => ipcRenderer.invoke('mesas:eliminar', id),
+  comandaAbrir: (mesaId: number, usuarioId: number) =>
+    ipcRenderer.invoke('comanda:abrir', mesaId, usuarioId),
+  comandaAgregarItem: (comandaId: number, item: unknown) =>
+    ipcRenderer.invoke('comanda:agregarItem', comandaId, item),
+  comandaCambiarCantidad: (itemId: number, cantidad: number) =>
+    ipcRenderer.invoke('comanda:cambiarCantidad', itemId, cantidad),
+  comandaCobrar: (comandaId: number, pago: unknown) =>
+    ipcRenderer.invoke('comanda:cobrar', comandaId, pago),
+
   // Impresion
   imprimirTicket: (ventaId: number) => ipcRenderer.invoke('imprimir:ticket', ventaId),
   listarImpresoras: () => ipcRenderer.invoke('imprimir:listar'),
+  imprimirEtiquetas: (html: string) => ipcRenderer.invoke('imprimir:etiquetas', html),
 
   // Respaldos
   backupCrear: () => ipcRenderer.invoke('backup:crear'),

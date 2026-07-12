@@ -27,6 +27,7 @@ export type IconName =
   | 'truck'
   | 'home'
   | 'image'
+  | 'mesa'
 
 const paths: Record<IconName, JSX.Element> = {
   cart: (
@@ -167,6 +168,13 @@ const paths: Record<IconName, JSX.Element> = {
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
       <path d="M21 15l-5-5L5 21" />
+    </>
+  ),
+  mesa: (
+    <>
+      <path d="M3 8h18M5 8v11M19 8v11" />
+      <path d="M3 8l2-4h14l2 4" />
+      <path d="M9 19h6" />
     </>
   )
 }

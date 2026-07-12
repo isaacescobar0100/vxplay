@@ -10,6 +10,7 @@ import Caja from './pages/Caja'
 import Usuarios from './pages/Usuarios'
 import Compras from './pages/Compras'
 import Inicio from './pages/Inicio'
+import Mesas from './pages/Mesas'
 import Icon, { type IconName } from './components/Icon'
 
 export interface Usuario {
@@ -22,6 +23,7 @@ export interface Usuario {
 type Vista =
   | 'inicio'
   | 'ventas'
+  | 'mesas'
   | 'caja'
   | 'historial'
   | 'inventario'
@@ -31,9 +33,10 @@ type Vista =
   | 'usuarios'
   | 'config'
 
-// `roles` indica qué roles ven la sección; si se omite, la ven todos.
-const NAV: { key: Vista; label: string; icon: IconName; roles?: string[] }[] = [
+// `roles` = qué roles la ven; `tipos` = en qué tipos de negocio aparece (si se omite, en todos).
+const NAV: { key: Vista; label: string; icon: IconName; roles?: string[]; tipos?: string[] }[] = [
   { key: 'inicio', label: 'Inicio', icon: 'home' },
+  { key: 'mesas', label: 'Mesas', icon: 'mesa', tipos: ['bar', 'restaurante'] },
   { key: 'ventas', label: 'Punto de Venta', icon: 'cart' },
   { key: 'caja', label: 'Caja', icon: 'cash' },
   { key: 'historial', label: 'Ventas', icon: 'receipt' },
@@ -51,16 +54,48 @@ export default function App(): JSX.Element {
   const [tienda, setTienda] = useState('Mi Tienda de Ropa')
   const [cambiarPass, setCambiarPass] = useState(false)
   const [version, setVersion] = useState('')
+  const [lic, setLic] = useState<any>('checking')
+  const [tipoNegocio, setTipoNegocio] = useState('ropa')
+  const [licenciaCodigo, setLicenciaCodigo] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  async function cargarConfig(): Promise<void> {
+    const c = (await window.api.configGetAll()) as Record<string, string>
+    if (c.tienda_nombre) setTienda(c.tienda_nombre)
+    setTipoNegocio(c.tipo_negocio ?? 'ropa')
+    setLicenciaCodigo(c.licencia_codigo ?? '')
+  }
+
+  async function verificarLicencia(): Promise<void> {
+    setLic('checking')
+    setLic(await window.api.licenciaEstado())
+  }
 
   useEffect(() => {
+    verificarLicencia()
     window.api.appVersion().then((v: string) => setVersion(v))
+    // Revisar la licencia cada 60s: aplica suspensiones al instante y, si el
+    // proveedor cambió la configuración desde el panel, refresca las pantallas
+    // SIN cerrar la sesión (el cajero no tiene que volver a entrar).
+    const id = setInterval(async () => {
+      const r: any = await window.api.licenciaEstado()
+      setLic(r)
+      if (r.configCambio) {
+        await cargarConfig()
+        setRefreshKey((k) => k + 1) // remonta las páginas para reflejar la nueva config
+      }
+    }, 60000)
+    return () => clearInterval(id)
   }, [])
 
   useEffect(() => {
-    window.api.configGetAll().then((c: Record<string, string>) => {
-      if (c.tienda_nombre) setTienda(c.tienda_nombre)
-    })
+    cargarConfig()
   }, [usuario])
+
+  // ----- Portero de licencia (antes de todo) -----
+  if (lic === 'checking') return <PantallaCentro texto="Verificando licencia..." />
+  if (lic.necesitaActivacion) return <Activacion onActivado={verificarLicencia} />
+  if (!lic.activa) return <Bloqueado motivo={lic.motivo} onReintentar={verificarLicencia} />
 
   if (!usuario) return <Login onLogin={setUsuario} />
 
@@ -70,7 +105,41 @@ export default function App(): JSX.Element {
         <div className="brand">
           Vx<span>Play</span>
         </div>
-        {NAV.filter((n) => !n.roles || n.roles.includes(usuario.rol)).map((n) => (
+        <div
+          style={{
+            margin: '0 12px 14px',
+            padding: '10px 12px',
+            background: 'var(--panel-2)',
+            borderRadius: 8,
+            borderLeft: '3px solid var(--primary)'
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 13 }}>{tienda}</div>
+          {licenciaCodigo && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              Licencia: {licenciaCodigo}
+            </div>
+          )}
+          {usuario.rol === 'admin' && (
+            <button
+              className="btn-sm"
+              style={{ marginTop: 8, fontSize: 11, padding: '4px 8px' }}
+              onClick={async () => {
+                if (confirm('¿Cambiar la licencia/tienda de este equipo? Deberás ingresar otro código.')) {
+                  await window.api.licenciaCambiar()
+                  verificarLicencia()
+                }
+              }}
+            >
+              Cambiar licencia
+            </button>
+          )}
+        </div>
+        {NAV.filter(
+          (n) =>
+            (!n.roles || n.roles.includes(usuario.rol)) &&
+            (!n.tipos || n.tipos.includes(tipoNegocio))
+        ).map((n) => (
           <button
             key={n.key}
             className={'nav-item' + (vista === n.key ? ' active' : '')}
@@ -83,8 +152,6 @@ export default function App(): JSX.Element {
           </button>
         ))}
         <div className="sidebar-foot">
-          {tienda}
-          <br />
           {usuario.nombre} ({usuario.rol})
           <br />
           <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
@@ -111,9 +178,10 @@ export default function App(): JSX.Element {
         </div>
       </aside>
 
-      <main className="main">
+      <main className="main" key={refreshKey}>
         {vista === 'inicio' && <Inicio usuario={usuario} irA={(v) => setVista(v as Vista)} />}
         {vista === 'ventas' && <Ventas usuario={usuario} />}
+        {vista === 'mesas' && <Mesas usuario={usuario} />}
         {vista === 'caja' && <Caja usuario={usuario} />}
         {vista === 'historial' && <HistorialVentas usuario={usuario} />}
         {vista === 'inventario' && <Inventario />}
@@ -125,6 +193,88 @@ export default function App(): JSX.Element {
       </main>
 
       {cambiarPass && <CambiarPassword usuario={usuario} onClose={() => setCambiarPass(false)} />}
+    </div>
+  )
+}
+
+function PantallaCentro({ texto }: { texto: string }): JSX.Element {
+  return (
+    <div className="login-wrap">
+      <div style={{ textAlign: 'center', color: 'var(--muted)' }}>
+        <div className="brand" style={{ fontSize: 28, marginBottom: 10 }}>
+          Vx<span style={{ color: 'var(--primary)' }}>Play</span>
+        </div>
+        {texto}
+      </div>
+    </div>
+  )
+}
+
+function Activacion({ onActivado }: { onActivado: () => void }): JSX.Element {
+  const [codigo, setCodigo] = useState('')
+  const [cargando, setCargando] = useState(false)
+  const [error, setError] = useState('')
+
+  async function activar(e: React.FormEvent): Promise<void> {
+    e.preventDefault()
+    setError('')
+    setCargando(true)
+    const r: any = await window.api.licenciaActivar(codigo)
+    setCargando(false)
+    if (r.ok) onActivado()
+    else setError(r.error ?? 'No se pudo activar')
+  }
+
+  return (
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={activar}>
+        <h1>
+          Vx<span style={{ color: 'var(--primary)' }}>Play</span>
+        </h1>
+        <p>Activación del sistema</p>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 16, textAlign: 'center' }}>
+          Ingresa el código de licencia que te entregó el proveedor para activar este equipo.
+        </p>
+        <div className="field">
+          <label>Código de licencia</label>
+          <input
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+            placeholder="Ej: DEMO-1234"
+            autoFocus
+          />
+        </div>
+        {error && <p style={{ color: 'var(--red)', marginBottom: 12, fontSize: 13 }}>{error}</p>}
+        <button className="btn-primary" style={{ width: '100%' }} disabled={cargando}>
+          {cargando ? 'Activando...' : 'Activar'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function Bloqueado({ motivo, onReintentar }: { motivo: string; onReintentar: () => void }): JSX.Element {
+  const [cargando, setCargando] = useState(false)
+  async function reintentar(): Promise<void> {
+    setCargando(true)
+    await onReintentar()
+    setCargando(false)
+  }
+  return (
+    <div className="login-wrap">
+      <div className="login-card" style={{ textAlign: 'center', borderColor: 'var(--red)' }}>
+        <div style={{ fontSize: 44, marginBottom: 8 }}>
+          <Icon name="lock" size={44} />
+        </div>
+        <h1 style={{ fontSize: 20 }}>Sistema bloqueado</h1>
+        <p style={{ color: 'var(--red)', margin: '14px 0', fontSize: 14 }}>{motivo}</p>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
+          Una vez soluciones el pago o el problema con el proveedor, presiona reintentar.
+        </p>
+        <button className="btn-primary" style={{ width: '100%' }} onClick={reintentar} disabled={cargando}>
+          {cargando ? 'Verificando...' : 'Reintentar'}
+        </button>
+      </div>
     </div>
   )
 }

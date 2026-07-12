@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { cop } from '../util'
 import Icon from '../components/Icon'
+import { code39Svg } from '../barcode'
 
 interface Variante {
   id?: number
@@ -40,10 +41,13 @@ export default function Inventario(): JSX.Element {
   const [editando, setEditando] = useState<Producto | null>(null)
   const [stockDe, setStockDe] = useState<any | null>(null)
   const [categorias, setCategorias] = useState<any[]>([])
+  const [tipoNegocio, setTipoNegocio] = useState('ropa')
+  const [etiquetas, setEtiquetas] = useState(false)
 
   useEffect(() => {
     cargar()
     window.api.categoriasList().then((c: any) => setCategorias(c))
+    window.api.configGetAll().then((c: any) => setTipoNegocio(c.tipo_negocio ?? 'ropa'))
   }, [])
 
   async function cargar(): Promise<void> {
@@ -77,6 +81,9 @@ export default function Inventario(): JSX.Element {
             onChange={(e) => setFiltro(e.target.value)}
           />
         </div>
+        <button className="btn-icon" onClick={() => setEtiquetas(true)}>
+          <Icon name="scan" size={16} /> Etiquetas
+        </button>
         <button
           className="btn-primary btn-icon"
           onClick={() => setEditando({ ...vacio, variantes: [] })}
@@ -154,6 +161,7 @@ export default function Inventario(): JSX.Element {
         <ProductoModal
           producto={editando}
           categorias={categorias}
+          esRopa={tipoNegocio === 'ropa'}
           onClose={() => setEditando(null)}
           onSaved={() => {
             setEditando(null)
@@ -170,6 +178,122 @@ export default function Inventario(): JSX.Element {
           onChanged={cargar}
         />
       )}
+
+      {etiquetas && <EtiquetasModal onClose={() => setEtiquetas(false)} />}
+    </div>
+  )
+}
+
+// ---------- Modal de etiquetas de código de barras ----------
+function EtiquetasModal({ onClose }: { onClose: () => void }): JSX.Element {
+  const [items, setItems] = useState<any[]>([])
+  const [cant, setCant] = useState<Record<number, number>>({})
+  const [filtro, setFiltro] = useState('')
+
+  useEffect(() => {
+    window.api.productosList().then((prods: any[]) => {
+      const lista: any[] = []
+      for (const p of prods) {
+        for (const v of p.variantes ?? []) {
+          if (v.codigo_barras) {
+            lista.push({
+              id: v.id,
+              codigo: v.codigo_barras,
+              nombre: p.nombre,
+              detalle: [v.talla && 'T:' + v.talla, v.color].filter(Boolean).join(' '),
+              precio: p.precio_venta
+            })
+          }
+        }
+      }
+      setItems(lista)
+    })
+  }, [])
+
+  const filtrados = items.filter((i) => i.nombre.toLowerCase().includes(filtro.toLowerCase()))
+  const totalEtiquetas = Object.values(cant).reduce((s, n) => s + (n || 0), 0)
+
+  async function imprimir(): Promise<void> {
+    const partes: string[] = []
+    for (const it of items) {
+      const n = cant[it.id] ?? 0
+      for (let k = 0; k < n; k++) {
+        partes.push(`
+          <div class="etq">
+            <div class="nom">${it.nombre}${it.detalle ? ' ' + it.detalle : ''}</div>
+            <div class="precio">${cop(it.precio)}</div>
+            ${code39Svg(it.codigo, 40)}
+            <div class="cod">${it.codigo}</div>
+          </div>`)
+      }
+    }
+    if (partes.length === 0) {
+      alert('Indica cuántas etiquetas imprimir de al menos un producto.')
+      return
+    }
+    await window.api.imprimirEtiquetas(partes.join(''))
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: 640 }} onClick={(e) => e.stopPropagation()}>
+        <h2 className="section-title">
+          <Icon name="scan" size={20} /> Imprimir etiquetas de código de barras
+        </h2>
+        <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+          Indica cuántas etiquetas de cada producto quieres. Solo aparecen los que tienen{' '}
+          <b>código de barras</b> registrado.
+        </p>
+        <div className="input-icon" style={{ marginBottom: 10 }}>
+          <Icon name="search" size={16} />
+          <input placeholder="Buscar producto..." value={filtro} onChange={(e) => setFiltro(e.target.value)} />
+        </div>
+        <div style={{ maxHeight: 340, overflow: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Código</th>
+                <th className="text-right">Etiquetas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map((it) => (
+                <tr key={it.id}>
+                  <td>
+                    {it.nombre} <span className="muted">{it.detalle}</span>
+                  </td>
+                  <td className="muted" style={{ fontSize: 12 }}>
+                    {it.codigo}
+                  </td>
+                  <td className="text-right">
+                    <input
+                      type="number"
+                      style={{ width: 70, textAlign: 'right' }}
+                      value={cant[it.id] || ''}
+                      min={0}
+                      onChange={(e) => setCant((c) => ({ ...c, [it.id]: Number(e.target.value) }))}
+                    />
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="muted" style={{ textAlign: 'center', padding: 20 }}>
+                    Ningún producto tiene código de barras. Regístralos en Editar → "Cód. barras".
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="modal-foot">
+          <button onClick={onClose}>Cerrar</button>
+          <button className="btn-primary btn-icon" onClick={imprimir} disabled={totalEtiquetas === 0}>
+            <Icon name="print" size={15} /> Imprimir {totalEtiquetas > 0 ? `(${totalEtiquetas})` : ''}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -346,12 +470,14 @@ function StockModal({
 export function ProductoModal({
   producto,
   categorias,
+  esRopa = true,
   onClose,
   onSaved,
   onCategoriaCreada
 }: {
   producto: Producto
   categorias: any[]
+  esRopa?: boolean
   onClose: () => void
   onSaved: () => void
   onCategoriaCreada: () => void
@@ -494,64 +620,95 @@ export function ProductoModal({
           )}
         </div>
 
-        <label style={{ marginTop: 8 }}>Variantes (talla / color / stock)</label>
-        <table style={{ marginBottom: 8 }}>
-          <thead>
-            <tr>
-              <th>Talla</th>
-              <th>Color</th>
-              <th>Cód. barras</th>
-              <th>Stock</th>
-              <th>Mín.</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {form.variantes.map((v, i) => (
-              <tr key={i}>
-                <td>
-                  <input value={v.talla ?? ''} onChange={(e) => setVar(i, 'talla', e.target.value)} />
-                </td>
-                <td>
-                  <input value={v.color ?? ''} onChange={(e) => setVar(i, 'color', e.target.value)} />
-                </td>
-                <td>
-                  <input
-                    value={v.codigo_barras ?? ''}
-                    onChange={(e) => setVar(i, 'codigo_barras', e.target.value)}
-                  />
-                </td>
-                <td style={{ width: 80 }}>
-                  <input
-                    type="number"
-                    value={v.stock || ''}
-                    onChange={(e) => setVar(i, 'stock', Number(e.target.value))}
-                  />
-                </td>
-                <td style={{ width: 70 }}>
-                  <input
-                    type="number"
-                    value={v.stock_minimo || ''}
-                    onChange={(e) => setVar(i, 'stock_minimo', Number(e.target.value))}
-                  />
-                </td>
-                <td>
-                  <button
-                    className="btn-sm btn-danger"
-                    onClick={() => delVar(i)}
-                    title="Eliminar variante"
-                    style={{ display: 'inline-flex', padding: '6px 8px' }}
-                  >
-                    <Icon name="trash" size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <button className="btn-sm btn-icon" onClick={addVar}>
-          <Icon name="plus" size={14} /> Agregar variante
-        </button>
+        {esRopa ? (
+          <>
+            <label style={{ marginTop: 8 }}>Variantes (talla / color / stock)</label>
+            <table style={{ marginBottom: 8 }}>
+              <thead>
+                <tr>
+                  <th>Talla</th>
+                  <th>Color</th>
+                  <th>Cód. barras</th>
+                  <th>Stock</th>
+                  <th>Mín.</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {form.variantes.map((v, i) => (
+                  <tr key={i}>
+                    <td>
+                      <input value={v.talla ?? ''} onChange={(e) => setVar(i, 'talla', e.target.value)} />
+                    </td>
+                    <td>
+                      <input value={v.color ?? ''} onChange={(e) => setVar(i, 'color', e.target.value)} />
+                    </td>
+                    <td>
+                      <input
+                        value={v.codigo_barras ?? ''}
+                        onChange={(e) => setVar(i, 'codigo_barras', e.target.value)}
+                      />
+                    </td>
+                    <td style={{ width: 80 }}>
+                      <input
+                        type="number"
+                        value={v.stock || ''}
+                        onChange={(e) => setVar(i, 'stock', Number(e.target.value))}
+                      />
+                    </td>
+                    <td style={{ width: 70 }}>
+                      <input
+                        type="number"
+                        value={v.stock_minimo || ''}
+                        onChange={(e) => setVar(i, 'stock_minimo', Number(e.target.value))}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        className="btn-sm btn-danger"
+                        onClick={() => delVar(i)}
+                        title="Eliminar variante"
+                        style={{ display: 'inline-flex', padding: '6px 8px' }}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button className="btn-sm btn-icon" onClick={addVar}>
+              <Icon name="plus" size={14} /> Agregar variante
+            </button>
+          </>
+        ) : (
+          // Modo simple (bar/restaurante/general): un solo stock, sin tallas/colores
+          <div className="grid-3">
+            <div className="field">
+              <label>Código de barras</label>
+              <input
+                value={form.variantes[0]?.codigo_barras ?? ''}
+                onChange={(e) => setVar(0, 'codigo_barras', e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>Stock actual</label>
+              <input
+                type="number"
+                value={form.variantes[0]?.stock || ''}
+                onChange={(e) => setVar(0, 'stock', Number(e.target.value))}
+              />
+            </div>
+            <div className="field">
+              <label>Stock mínimo</label>
+              <input
+                type="number"
+                value={form.variantes[0]?.stock_minimo || ''}
+                onChange={(e) => setVar(0, 'stock_minimo', Number(e.target.value))}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="modal-foot">
           <button onClick={onClose}>Cancelar</button>
