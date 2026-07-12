@@ -36,11 +36,36 @@
       .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
       .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
-      .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: 620px; max-height: 90vh; overflow: auto; }
+      .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: min(620px, 94vw); max-height: 90vh; overflow: auto; }
+      .tabla-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .stats4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
       .foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
       .muted { color: var(--muted); } .err { color: var(--red); font-size: 13px; margin-top: 8px; }
       h2 { margin-bottom: 6px; } .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
       .sect { margin-top: 14px; font-weight: 700; color: var(--primary); font-size: 13px; }
+
+      /* ---- Responsive (tablet y celular) ---- */
+      @media (max-width: 820px) {
+        .stats4 { grid-template-columns: 1fr 1fr; }
+      }
+      @media (max-width: 640px) {
+        .wrap { padding: 14px; }
+        .card { padding: 16px; }
+        .topbar { flex-direction: column; align-items: stretch; gap: 12px; }
+        .topbar > div { display: flex; flex-wrap: wrap; gap: 8px; }
+        .topbar > div button { flex: 1; min-width: 0; }
+        .brand { text-align: center; }
+        .grid2 { grid-template-columns: 1fr; }
+        .stats4 { grid-template-columns: 1fr 1fr; gap: 8px; }
+        .modal { padding: 18px; }
+        .foot { flex-wrap: wrap; }
+        table { min-width: 620px; }        /* la tabla mantiene ancho y se desliza */
+        th, td { padding: 8px 10px; font-size: 12px; }
+        button { padding: 9px 11px; }
+      }
+      @media (max-width: 400px) {
+        .stats4 { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
@@ -121,7 +146,7 @@
                 <button class="sm" onclick="cerrarSesion()">Salir</button>
               </div>
             </div>
-            <div class="card" style="padding:0">
+            <div class="card tabla-wrap" style="padding:0">
               <table>
                 <thead><tr><th>Tienda</th><th>Licencia</th><th>Estado</th><th>Vence</th><th>Último acceso</th><th>Último respaldo</th><th></th></tr></thead>
                 <tbody>${filas || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Sin tiendas. Crea la primera.</td></tr>'}</tbody>
@@ -260,13 +285,13 @@
               <div class="brand">Vx<span>Play</span> · Ventas</div>
               <div><button onclick="cargar()">← Tiendas</button><button class="sm" onclick="cerrarSesion()">Salir</button></div>
             </div>
-            <div class="grid2" style="grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+            <div class="stats4">
               <div class="card"><div class="muted">Hoy (todas)</div><div style="font-size:24px;font-weight:800;color:#4ade80">${cop(g.hoy)}</div></div>
               <div class="card"><div class="muted">Últimos 7 días</div><div style="font-size:24px;font-weight:800">${cop(g.semana)}</div></div>
               <div class="card"><div class="muted">Este mes</div><div style="font-size:24px;font-weight:800">${cop(g.mes)}</div></div>
               <div class="card"><div class="muted">Tiendas activas</div><div style="font-size:24px;font-weight:800">${lista.length}</div></div>
             </div>
-            <div class="card" style="padding:0">
+            <div class="card tabla-wrap" style="padding:0">
               <table>
                 <thead><tr><th>Tienda</th><th class="r">Hoy</th><th class="r">7 días</th><th class="r">Este mes</th><th class="r">Total 30d</th><th class="r">N° ventas</th></tr></thead>
                 <tbody>${filas || '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">Aún no hay ventas reportadas. Las tiendas suben su resumen al cerrar caja, al abrir y cada 6h.</td></tr>'}</tbody>
