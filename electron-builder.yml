@@ -7,7 +7,7 @@ directories:
 publish:
   provider: github
   owner: isaacescobar0100
-  repo: pos-ropa
+  repo: vxplay
 files:
   - out/**/*
   - node_modules/**/*
