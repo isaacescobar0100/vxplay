@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Usuario } from '../App'
-import { cop } from '../util'
+import { cop, CARTA_BASE_URL } from '../util'
 import Icon from '../components/Icon'
 import { Checkout, type CartItem } from './Ventas'
 import { qrSvg } from '../qr'
@@ -170,7 +170,7 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
       {qrMesa && (
         <QrModal
           mesa={qrMesa}
-          base={cfg.carta_url ?? ''}
+          base={CARTA_BASE_URL}
           licencia={cfg.licencia_codigo ?? ''}
           tienda={cfg.tienda_nombre ?? ''}
           onClose={() => setQrMesa(null)}

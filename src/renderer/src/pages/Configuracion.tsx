@@ -56,22 +56,7 @@ export default function Configuracion(): JSX.Element {
     // si ok, la app se reinicia sola
   }
 
-  function soloDominio(raw: string): string {
-    let s = (raw || '').trim()
-    if (!s) return ''
-    if (!/^https?:\/\//i.test(s)) s = 'https://' + s
-    try {
-      return new URL(s).origin
-    } catch {
-      return s.replace(/\/.*$/, '')
-    }
-  }
-
   async function publicarCarta(): Promise<void> {
-    // Guardamos SOLO el dominio (aunque peguen la URL completa con /carta.html?t=...)
-    const dominio = soloDominio(cfg.carta_url ?? '')
-    set('carta_url', dominio)
-    await window.api.configSet('carta_url', dominio)
     setCartaCargando(true)
     const r: any = await window.api.cartaPublicar()
     setCartaCargando(false)
@@ -298,20 +283,9 @@ export default function Configuracion(): JSX.Element {
         </h3>
         <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
           Sube tu menú a la nube para que los clientes lo vean en su celular al escanear el QR de la mesa.
-          Publica de nuevo cada vez que cambies precios o productos.
+          Presiona <b>Publicar carta</b> cada vez que cambies precios o productos. El enlace de la carta ya viene
+          configurado (no hay que escribir nada).
         </p>
-        <div className="field">
-          <label>Dirección web de la carta (tu dominio de Vercel)</label>
-          <input
-            value={cfg.carta_url ?? ''}
-            onChange={(e) => set('carta_url', e.target.value)}
-            placeholder="https://tu-panel.vercel.app"
-          />
-          <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Escribe <b>solo el dominio</b> (ej. <code>https://pos-ropa-three.vercel.app</code>), sin <code>/carta.html</code>
-            ni <code>?t=</code>. El POS arma el resto solo.
-          </p>
-        </div>
         <div className="row">
           <button className="btn-primary btn-icon" onClick={publicarCarta} disabled={cartaCargando}>
             <Icon name="check" size={15} /> {cartaCargando ? 'Publicando...' : 'Publicar carta ahora'}
