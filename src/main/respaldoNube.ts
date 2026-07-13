@@ -11,8 +11,6 @@ import { SUPABASE_URL, SUPABASE_ANON } from './supabase'
  * - Automático: al cerrar caja y cada 24 horas.
  */
 
-const BUCKET = 'respaldos'
-
 function getCfg(clave: string): string | null {
   const row = queryOne<{ valor: string }>('SELECT valor FROM config WHERE clave = ?', [clave])
   return row ? row.valor : null
@@ -24,11 +22,9 @@ function setCfg(clave: string, valor: string): void {
   ])
 }
 
-function rutaObjeto(licencia: string): string {
-  return `${encodeURIComponent(licencia)}/pos-ropa.sqlite`
-}
+const FN_URL = `${SUPABASE_URL}/functions/v1/respaldo`
 
-/** Sube la BD actual a la nube. Devuelve {ok, error?}. */
+/** Sube la BD actual a la nube a través de la Edge Function (con permisos de servidor). */
 export async function subirRespaldo(): Promise<{ ok: boolean; error?: string }> {
   const licencia = getCfg('licencia_codigo')
   if (!licencia) return { ok: false, error: 'Este equipo no tiene licencia activada.' }
@@ -37,54 +33,45 @@ export async function subirRespaldo(): Promise<{ ok: boolean; error?: string }> 
     persist() // asegurar que el archivo tenga lo último
     const datos = readFileSync(getDbPath())
 
-    const resp = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${rutaObjeto(licencia)}`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_ANON,
-        Authorization: 'Bearer ' + SUPABASE_ANON,
-        'Content-Type': 'application/octet-stream',
-        'x-upsert': 'true'
-      },
-      body: new Uint8Array(datos)
-    })
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => '')
-      return { ok: false, error: `No se pudo subir (HTTP ${resp.status}). ${t}` }
-    }
-
-    // marcar la fecha (local + en el panel)
-    setCfg('licencia_ultimo_respaldo', String(Date.now()))
-    fetch(`${SUPABASE_URL}/rest/v1/rpc/marcar_respaldo`, {
+    const resp = await fetch(FN_URL, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_ANON,
         Authorization: 'Bearer ' + SUPABASE_ANON,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ p_licencia: licencia })
-    }).catch(() => {})
+      body: JSON.stringify({ accion: 'subir', licencia, archivo: datos.toString('base64') })
+    })
+    const r = await resp.json().catch(() => ({}))
+    if (!resp.ok || !r.ok) return { ok: false, error: r.error ?? `No se pudo subir (HTTP ${resp.status}).` }
 
+    setCfg('licencia_ultimo_respaldo', String(Date.now()))
     return { ok: true }
   } catch (e: any) {
     return { ok: false, error: e?.message ?? 'Sin conexión' }
   }
 }
 
-/** Descarga el respaldo de la nube y reemplaza la BD local. Requiere reiniciar. */
+/** Descarga el respaldo de la nube (vía Edge Function) y reemplaza la BD local. Requiere reiniciar. */
 export async function bajarRespaldo(licenciaManual?: string): Promise<{ ok: boolean; error?: string }> {
   const licencia = licenciaManual || getCfg('licencia_codigo')
   if (!licencia) return { ok: false, error: 'Indica la licencia de la tienda a restaurar.' }
 
   try {
-    const resp = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${rutaObjeto(licencia)}`, {
-      headers: { apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON }
+    const resp = await fetch(FN_URL, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON,
+        Authorization: 'Bearer ' + SUPABASE_ANON,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ accion: 'bajar', licencia })
     })
-    if (resp.status === 400 || resp.status === 404) {
-      return { ok: false, error: 'No hay respaldo en la nube para esa licencia.' }
+    const r = await resp.json().catch(() => ({}))
+    if (!resp.ok || !r.ok || !r.archivo) {
+      return { ok: false, error: r.error ?? 'No hay respaldo en la nube para esa licencia.' }
     }
-    if (!resp.ok) return { ok: false, error: `Error al descargar (HTTP ${resp.status})` }
-
-    const buf = Buffer.from(await resp.arrayBuffer())
+    const buf = Buffer.from(r.archivo, 'base64')
     if (buf.length < 100) return { ok: false, error: 'El respaldo descargado está vacío.' }
     writeFileSync(getDbPath(), buf)
     return { ok: true }
