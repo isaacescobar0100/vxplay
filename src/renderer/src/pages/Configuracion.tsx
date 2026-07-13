@@ -45,9 +45,22 @@ export default function Configuracion(): JSX.Element {
     // si ok, la app se reinicia sola
   }
 
+  function soloDominio(raw: string): string {
+    let s = (raw || '').trim()
+    if (!s) return ''
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s
+    try {
+      return new URL(s).origin
+    } catch {
+      return s.replace(/\/.*$/, '')
+    }
+  }
+
   async function publicarCarta(): Promise<void> {
-    // Aseguramos que el dominio quede guardado antes de publicar
-    await window.api.configSet('carta_url', (cfg.carta_url ?? '').trim())
+    // Guardamos SOLO el dominio (aunque peguen la URL completa con /carta.html?t=...)
+    const dominio = soloDominio(cfg.carta_url ?? '')
+    set('carta_url', dominio)
+    await window.api.configSet('carta_url', dominio)
     setCartaCargando(true)
     const r: any = await window.api.cartaPublicar()
     setCartaCargando(false)
@@ -216,7 +229,8 @@ export default function Configuracion(): JSX.Element {
             placeholder="https://tu-panel.vercel.app"
           />
           <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Es el mismo dominio donde está tu panel. El QR de cada mesa abrirá <code>…/carta.html</code>.
+            Escribe <b>solo el dominio</b> (ej. <code>https://pos-ropa-three.vercel.app</code>), sin <code>/carta.html</code>
+            ni <code>?t=</code>. El POS arma el resto solo.
           </p>
         </div>
         <div className="row">

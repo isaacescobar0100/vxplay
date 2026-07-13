@@ -180,6 +180,18 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
   )
 }
 
+/** Extrae solo el dominio (https://host) aunque peguen la URL completa con ruta o parámetros. */
+function baseOrigin(raw: string): string {
+  let s = (raw || '').trim()
+  if (!s) return ''
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s
+  try {
+    return new URL(s).origin
+  } catch {
+    return s.replace(/\/.*$/, '').replace(/\/+$/, '')
+  }
+}
+
 // ---------- Modal de código QR de la mesa ----------
 function QrModal({
   mesa,
@@ -194,7 +206,8 @@ function QrModal({
   tienda: string
   onClose: () => void
 }): JSX.Element {
-  const dominio = (base || '').trim().replace(/\/+$/, '')
+  // Toma solo el dominio (origin) aunque el usuario pegue la URL completa con ruta/params.
+  const dominio = baseOrigin(base)
   const falta = !dominio || !licencia
   const url = `${dominio}/carta.html?t=${encodeURIComponent(licencia)}&m=${encodeURIComponent(mesa.nombre)}`
   const svg = falta ? '' : qrSvg(url, 240)
