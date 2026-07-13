@@ -73,8 +73,17 @@ export default function App(): JSX.Element {
   }
 
   async function verificarLicencia(): Promise<void> {
-    setLic('checking')
-    setLic(await window.api.licenciaEstado())
+    // Arranque optimista: muestra de una con la última validación en cache (sin esperar internet).
+    const rapido: any = await window.api.licenciaEstadoRapido()
+    if (rapido) setLic(rapido)
+    else setLic('checking')
+    // Valida contra el servidor en segundo plano (aplica suspensiones/cambios).
+    const real: any = await window.api.licenciaEstado()
+    setLic(real)
+    if (real.configCambio) {
+      await cargarConfig()
+      setRefreshKey((k) => k + 1)
+    }
   }
 
   useEffect(() => {

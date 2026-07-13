@@ -159,6 +159,25 @@ export interface EstadoLicencia {
   configCambio?: boolean // true si la config central cambió (para refrescar la UI)
 }
 
+/**
+ * Estado INMEDIATO desde la cache local (sin internet), para arrancar rápido.
+ * - Sin licencia -> pide activación.
+ * - Con licencia validada hace poco (dentro del período de gracia) -> activa al instante.
+ * - Con licencia pero sin validación reciente -> null (hay que consultar al servidor).
+ */
+export function estadoLicenciaRapido(): EstadoLicencia | null {
+  const codigo = getCfg('licencia_codigo')
+  if (!codigo) return { activa: false, necesitaActivacion: true }
+  const ultimo = getCfg('licencia_ultimo_ok')
+  if (ultimo) {
+    const dias = (Date.now() - Number(ultimo)) / 86400000
+    if (dias <= GRACE_DAYS) {
+      return { activa: true, offline: true, nombre: getCfg('licencia_nombre') ?? undefined }
+    }
+  }
+  return null // no hay validación reciente: esperar al servidor
+}
+
 /** Estado actual de la licencia de esta instalación. */
 export async function estadoLicencia(): Promise<EstadoLicencia> {
   const codigo = getCfg('licencia_codigo')
