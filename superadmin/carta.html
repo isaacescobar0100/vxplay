@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>Carta digital</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+      body {
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+        padding-bottom: 40px;
+      }
+      .top {
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        padding: 26px 20px 20px;
+        text-align: center;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      }
+      .top h1 { font-size: 22px; font-weight: 800; color: #fff; }
+      .top .mesa { margin-top: 4px; font-size: 13px; color: #e0e7ff; }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 16px; }
+      .cat { margin-top: 22px; }
+      .cat h2 {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #818cf8;
+        border-bottom: 1px solid #334155;
+        padding-bottom: 6px;
+        margin-bottom: 6px;
+      }
+      .item {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        padding: 13px 4px;
+        border-bottom: 1px solid #1e293b;
+      }
+      .item .n { font-size: 15px; font-weight: 600; }
+      .item .p { font-size: 15px; font-weight: 700; color: #4ade80; white-space: nowrap; }
+      .estado {
+        margin: 40px 16px;
+        text-align: center;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 30px 20px;
+      }
+      .estado .ico { font-size: 40px; margin-bottom: 10px; }
+      .foot { text-align: center; color: #64748b; font-size: 12px; margin-top: 30px; }
+      .skel { color: #64748b; text-align: center; margin-top: 60px; font-size: 15px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="skel">Cargando carta…</div>
+    </div>
+
+    <script>
+      const SUPABASE_URL = 'https://fivmoaytipcqdgchfbdf.supabase.co'
+      const SUPABASE_ANON =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpdm1vYXl0aXBjcWRnY2hmYmRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3ODQ0NjgsImV4cCI6MjA5OTM2MDQ2OH0.53tMbosXO6_mRZML6ypU6oJ-YS_cESb68TxkPdeaSKc'
+
+      const params = new URLSearchParams(location.search)
+      const licencia = params.get('t') || ''
+      const mesa = params.get('m') || ''
+      const app = document.getElementById('app')
+
+      const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+      const cop = (n) => '$' + Number(n || 0).toLocaleString('es-CO')
+
+      function pantallaEstado(ico, titulo, texto) {
+        app.innerHTML =
+          '<div class="estado"><div class="ico">' + ico + '</div><h2 style="margin-bottom:8px">' +
+          esc(titulo) + '</h2><p style="color:#94a3b8;font-size:14px">' + esc(texto) + '</p></div>'
+      }
+
+      async function cargar() {
+        if (!licencia) return pantallaEstado('🔗', 'Enlace incompleto', 'Este QR no tiene la tienda. Pide uno nuevo al negocio.')
+        try {
+          const resp = await fetch(SUPABASE_URL + '/rest/v1/rpc/obtener_carta', {
+            method: 'POST',
+            headers: {
+              apikey: SUPABASE_ANON,
+              Authorization: 'Bearer ' + SUPABASE_ANON,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ p_licencia: licencia })
+          })
+          const data = await resp.json()
+          if (!data || !data.ok) return pantallaEstado('🍽️', 'Carta no disponible', 'Esta tienda aún no publicó su carta.')
+          if (data.estado && data.estado !== 'activa')
+            return pantallaEstado('⏸️', 'Carta no disponible', 'El menú no está disponible en este momento.')
+          render(data)
+        } catch (e) {
+          pantallaEstado('📡', 'Sin conexión', 'Revisa tu internet e intenta de nuevo.')
+        }
+      }
+
+      function render(data) {
+        const productos = data.productos || []
+        if (!productos.length) return pantallaEstado('🍽️', 'Carta vacía', 'Esta tienda aún no cargó productos.')
+
+        // Agrupar por categoría respetando el orden recibido
+        const grupos = []
+        const idx = {}
+        for (const p of productos) {
+          const cat = p.categoria || 'Otros'
+          if (!(cat in idx)) {
+            idx[cat] = grupos.length
+            grupos.push({ cat, items: [] })
+          }
+          grupos[idx[cat]].items.push(p)
+        }
+
+        let html =
+          '<div class="top"><h1>' + esc(data.tienda || 'Nuestra carta') + '</h1>' +
+          (mesa ? '<div class="mesa">' + esc(mesa) + '</div>' : '') + '</div><div class="wrap">'
+        for (const g of grupos) {
+          html += '<div class="cat"><h2>' + esc(g.cat) + '</h2>'
+          for (const it of g.items) {
+            html += '<div class="item"><span class="n">' + esc(it.nombre) + '</span><span class="p">' + cop(it.precio) + '</span></div>'
+          }
+          html += '</div>'
+        }
+        html += '<div class="foot">Carta digital · precios en pesos colombianos</div></div>'
+        app.innerHTML = html
+        document.title = (data.tienda || 'Carta') + ' — Carta'
+      }
+
+      cargar()
+    </script>
+  </body>
+</html>

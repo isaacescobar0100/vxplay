@@ -8,6 +8,7 @@ export default function Configuracion(): JSX.Element {
   const [backups, setBackups] = useState<{ nombre: string; fecha: string; kb: number }[]>([])
   const [nubeUltimo, setNubeUltimo] = useState<string | null>(null)
   const [nubeCargando, setNubeCargando] = useState(false)
+  const [cartaCargando, setCartaCargando] = useState(false)
 
   async function cargarBackups(): Promise<void> {
     setBackups((await window.api.backupListar()) as any[])
@@ -42,6 +43,21 @@ export default function Configuracion(): JSX.Element {
     const r: any = await window.api.nubeRestaurar()
     if (!r.ok) alert('No se pudo restaurar: ' + (r.error ?? ''))
     // si ok, la app se reinicia sola
+  }
+
+  async function publicarCarta(): Promise<void> {
+    // Aseguramos que el dominio quede guardado antes de publicar
+    await window.api.configSet('carta_url', (cfg.carta_url ?? '').trim())
+    setCartaCargando(true)
+    const r: any = await window.api.cartaPublicar()
+    setCartaCargando(false)
+    if (r.ok) {
+      alert(
+        'Carta publicada con ' + r.count + ' producto(s).\n\nLos clientes ya la ven al escanear el QR de la mesa.'
+      )
+    } else {
+      alert('No se pudo publicar la carta: ' + (r.error ?? ''))
+    }
   }
 
   async function exportar(): Promise<void> {
@@ -181,6 +197,32 @@ export default function Configuracion(): JSX.Element {
           <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
             Recomendado: imagen pequeña (logo en blanco/negro se ve mejor en impresora térmica). Recuerda dar <b>Guardar</b>.
           </p>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 className="section-title" style={{ marginBottom: 6 }}>
+          <Icon name="qr" size={18} /> Carta digital (QR por mesa)
+        </h3>
+        <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+          Sube tu menú a la nube para que los clientes lo vean en su celular al escanear el QR de la mesa.
+          Publica de nuevo cada vez que cambies precios o productos.
+        </p>
+        <div className="field">
+          <label>Dirección web de la carta (tu dominio de Vercel)</label>
+          <input
+            value={cfg.carta_url ?? ''}
+            onChange={(e) => set('carta_url', e.target.value)}
+            placeholder="https://tu-panel.vercel.app"
+          />
+          <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Es el mismo dominio donde está tu panel. El QR de cada mesa abrirá <code>…/carta.html</code>.
+          </p>
+        </div>
+        <div className="row">
+          <button className="btn-primary btn-icon" onClick={publicarCarta} disabled={cartaCargando}>
+            <Icon name="check" size={15} /> {cartaCargando ? 'Publicando...' : 'Publicar carta ahora'}
+          </button>
         </div>
       </div>
 

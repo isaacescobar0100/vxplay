@@ -3,6 +3,7 @@ import type { Usuario } from '../App'
 import { cop } from '../util'
 import Icon from '../components/Icon'
 import { Checkout, type CartItem } from './Ventas'
+import { qrSvg } from '../qr'
 
 export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
   const [mesas, setMesas] = useState<any[]>([])
@@ -10,6 +11,8 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
   const [mesaActual, setMesaActual] = useState<any | null>(null)
   const [renombrar, setRenombrar] = useState<any | null>(null)
   const [liberar, setLiberar] = useState<any | null>(null)
+  const [qrMesa, setQrMesa] = useState<any | null>(null)
+  const [cfg, setCfg] = useState<Record<string, string>>({})
   const esAdmin = usuario.rol === 'admin'
 
   async function cargar(): Promise<void> {
@@ -17,6 +20,7 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
   }
   useEffect(() => {
     cargar()
+    window.api.configGetAll().then(setCfg)
   }, [])
 
   async function abrirMesa(mesa: any): Promise<void> {
@@ -125,6 +129,7 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
                     background: 'rgba(255,255,255,.02)'
                   }}
                 >
+                  <MesaAccion titulo="Código QR de la carta" onClick={() => setQrMesa(m)} icon="qr" />
                   <MesaAccion titulo="Renombrar" onClick={() => setRenombrar(m)} icon="edit" />
                   {ocupada ? (
                     esAdmin && <MesaAccion titulo="Liberar sin cobrar" onClick={() => setLiberar(m)} icon="lock" danger />
@@ -162,6 +167,79 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
           }}
         />
       )}
+      {qrMesa && (
+        <QrModal
+          mesa={qrMesa}
+          base={cfg.carta_url ?? ''}
+          licencia={cfg.licencia_codigo ?? ''}
+          tienda={cfg.tienda_nombre ?? ''}
+          onClose={() => setQrMesa(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------- Modal de código QR de la mesa ----------
+function QrModal({
+  mesa,
+  base,
+  licencia,
+  tienda,
+  onClose
+}: {
+  mesa: any
+  base: string
+  licencia: string
+  tienda: string
+  onClose: () => void
+}): JSX.Element {
+  const dominio = (base || '').trim().replace(/\/+$/, '')
+  const falta = !dominio || !licencia
+  const url = `${dominio}/carta.html?t=${encodeURIComponent(licencia)}&m=${encodeURIComponent(mesa.nombre)}`
+  const svg = falta ? '' : qrSvg(url, 240)
+
+  function hoja(): string {
+    return `<div style="text-align:center;font-family:Segoe UI,sans-serif;padding:24px;page-break-inside:avoid">
+      ${tienda ? `<div style="font-size:22px;font-weight:800;margin-bottom:2px">${tienda}</div>` : ''}
+      <div style="font-size:16px;color:#334155;margin-bottom:14px">${mesa.nombre}</div>
+      <div style="display:inline-block;padding:12px;border:2px solid #000;border-radius:12px">${svg}</div>
+      <div style="font-size:18px;font-weight:700;margin-top:14px">Escanea y mira la carta</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Apunta la cámara de tu celular al código</div>
+    </div>`
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 420, textAlign: 'center' }}>
+        <h3 style={{ marginTop: 0 }}>QR de la carta — {mesa.nombre}</h3>
+        {falta ? (
+          <div
+            className="card"
+            style={{ background: 'rgba(245,158,11,.12)', border: '1px solid var(--amber)', fontSize: 13, textAlign: 'left' }}
+          >
+            <b style={{ color: 'var(--amber)' }}>Falta configurar la carta.</b> Ve a <b>Configuración → Carta digital</b>,
+            escribe tu dominio de Vercel y presiona <b>Publicar carta</b>. Luego vuelve aquí para generar el QR.
+          </div>
+        ) : (
+          <>
+            <div
+              style={{ display: 'inline-block', background: '#fff', padding: 12, borderRadius: 12 }}
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+            <p className="muted" style={{ fontSize: 11, wordBreak: 'break-all', marginTop: 8 }}>{url}</p>
+          </>
+        )}
+        <div className="modal-foot" style={{ marginTop: 16 }}>
+          <button onClick={onClose}>Cerrar</button>
+          <button className="btn-icon" disabled={falta} onClick={() => window.api.etiquetasPdf(hoja())}>
+            <Icon name="image" size={15} /> Descargar PDF
+          </button>
+          <button className="btn-primary btn-icon" disabled={falta} onClick={() => window.api.imprimirEtiquetas(hoja())}>
+            <Icon name="print" size={15} /> Imprimir
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

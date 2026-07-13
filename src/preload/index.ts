@@ -89,6 +89,7 @@ const api = {
   listarImpresoras: () => ipcRenderer.invoke('imprimir:listar'),
   imprimirEtiquetas: (html: string) => ipcRenderer.invoke('imprimir:etiquetas', html),
   etiquetasPdf: (html: string) => ipcRenderer.invoke('imprimir:etiquetasPdf', html),
+  cartaPublicar: () => ipcRenderer.invoke('carta:publicar'),
 
   // Respaldos
   backupCrear: () => ipcRenderer.invoke('backup:crear'),

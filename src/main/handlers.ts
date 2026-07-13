@@ -3,6 +3,7 @@ import { writeFileSync } from 'fs'
 import { query, queryOne, insert, run, transaction, persist, getDb } from './db'
 import { facturarVenta } from './dian'
 import { imprimirTicket, imprimirCierre, listarImpresoras, imprimirEtiquetas, etiquetasPdf } from './printer'
+import { publicarCarta } from './carta'
 import { hashPassword, verifyPassword } from './auth'
 import { crearBackupAutomatico, listarBackups, exportarDb, importarDb } from './backup'
 import { estadoLicencia, activarLicencia } from './licencia'
@@ -460,6 +461,9 @@ export function registerHandlers(): void {
   ipcMain.handle('imprimir:listar', () => listarImpresoras())
   ipcMain.handle('imprimir:etiquetas', (_e, html: string) => imprimirEtiquetas(html))
   ipcMain.handle('imprimir:etiquetasPdf', (_e, html: string) => etiquetasPdf(html))
+
+  // ---------- CARTA DIGITAL (QR por mesa) ----------
+  ipcMain.handle('carta:publicar', () => publicarCarta())
 
   // ---------- RESPALDOS ----------
   ipcMain.handle('backup:crear', () => {
