@@ -1,7 +1,18 @@
 import { app, dialog } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, unlinkSync } from 'fs'
-import { getDbPath, persist } from './db'
+import { getDbPath, persist, queryOne } from './db'
+
+/** Etiqueta de la tienda para nombrar los respaldos: vxplay-<LICENCIA> (o solo vxplay). */
+function etiquetaTienda(): string {
+  try {
+    const row = queryOne<{ valor: string }>("SELECT valor FROM config WHERE clave = 'licencia_codigo'")
+    const lic = (row?.valor ?? '').trim().replace(/[^A-Za-z0-9_-]/g, '')
+    return lic ? 'vxplay-' + lic : 'vxplay'
+  } catch {
+    return 'vxplay'
+  }
+}
 
 /**
  * Respaldo de la base de datos. Como todo vive en un solo archivo .sqlite,
@@ -20,7 +31,7 @@ export function crearBackupAutomatico(maxBackups = 15): string | null {
   const src = getDbPath()
   if (!existsSync(src)) return null
   const ts = new Date().toISOString().replace(/[:.]/g, '-')
-  const dest = join(backupsDir(), `pos-ropa-${ts}.sqlite`)
+  const dest = join(backupsDir(), `${etiquetaTienda()}-${ts}.sqlite`)
   copyFileSync(src, dest)
 
   // eliminar los más antiguos
@@ -49,7 +60,7 @@ export async function exportarDb(): Promise<{ ok: boolean; ruta?: string }> {
   const ts = new Date().toISOString().slice(0, 10)
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: 'Exportar copia de seguridad',
-    defaultPath: `respaldo-pos-ropa-${ts}.sqlite`,
+    defaultPath: `respaldo-${etiquetaTienda()}-${ts}.sqlite`,
     filters: [{ name: 'Base de datos POS', extensions: ['sqlite'] }]
   })
   if (canceled || !filePath) return { ok: false }

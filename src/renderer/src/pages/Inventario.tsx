@@ -43,6 +43,7 @@ export default function Inventario(): JSX.Element {
   const [categorias, setCategorias] = useState<any[]>([])
   const [tipoNegocio, setTipoNegocio] = useState('ropa')
   const [etiquetas, setEtiquetas] = useState(false)
+  const [importar, setImportar] = useState(false)
 
   useEffect(() => {
     cargar()
@@ -83,6 +84,9 @@ export default function Inventario(): JSX.Element {
         </div>
         <button className="btn-icon" onClick={() => setEtiquetas(true)}>
           <Icon name="scan" size={16} /> Etiquetas
+        </button>
+        <button className="btn-icon" onClick={() => setImportar(true)}>
+          <Icon name="box" size={16} /> Importar Excel
         </button>
         <button
           className="btn-primary btn-icon"
@@ -180,6 +184,125 @@ export default function Inventario(): JSX.Element {
       )}
 
       {etiquetas && <EtiquetasModal onClose={() => setEtiquetas(false)} />}
+      {importar && (
+        <ImportarModal
+          onClose={() => setImportar(false)}
+          onImportado={() => {
+            setImportar(false)
+            cargar()
+            window.api.categoriasList().then((c: any) => setCategorias(c))
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------- Modal de importación de productos (Excel/CSV) ----------
+function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImportado: () => void }): JSX.Element {
+  const [preview, setPreview] = useState<any | null>(null)
+  const [cargando, setCargando] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+
+  async function descargarPlantilla(): Promise<void> {
+    const r: any = await window.api.productosPlantilla()
+    if (r?.ok) alert('Plantilla guardada en:\n' + r.ruta)
+  }
+
+  async function elegirArchivo(): Promise<void> {
+    setCargando(true)
+    const r: any = await window.api.productosImportarLeer()
+    setCargando(false)
+    if (!r?.ok) {
+      if (r?.error && r.error !== 'cancelado') alert(r.error)
+      return
+    }
+    setPreview(r)
+  }
+
+  async function confirmar(): Promise<void> {
+    setGuardando(true)
+    const r: any = await window.api.productosImportarGuardar(preview.productos)
+    setGuardando(false)
+    if (r?.ok) {
+      alert(
+        `Importación lista:\n• ${r.creados} productos creados\n• ${r.variantes} variantes\n• ${r.categoriasNuevas} categorías nuevas` +
+          (r.omitidos ? `\n• ${r.omitidos} omitidos (SKU ya existía)` : '')
+      )
+      onImportado()
+    } else {
+      alert('No se pudo importar.')
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 560 }}>
+        <h2>Importar productos desde Excel</h2>
+        <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+          Sube un archivo <b>.xlsx</b> o <b>.csv</b>. Columnas: <code>nombre, categoria, marca, sku, precio_compra,
+          precio_venta, iva, codigo_barras, talla, color, stock, stock_minimo</code>. Solo <b>nombre</b> es obligatorio.
+          Si repites el mismo nombre con distinta talla/color, se crean como variantes del mismo producto.
+        </p>
+
+        {!preview ? (
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <button className="btn-icon" onClick={descargarPlantilla}>
+              <Icon name="image" size={15} /> Descargar plantilla
+            </button>
+            <button className="btn-primary btn-icon" onClick={elegirArchivo} disabled={cargando}>
+              <Icon name="box" size={15} /> {cargando ? 'Leyendo...' : 'Elegir archivo'}
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="card" style={{ background: 'var(--bg)', marginTop: 8 }}>
+              <b>{preview.productos.length}</b> productos · <b>{preview.totalVariantes}</b> variantes listos para importar.
+              {preview.errores?.length > 0 && (
+                <div style={{ color: 'var(--amber)', fontSize: 12, marginTop: 6 }}>
+                  {preview.errores.length} avisos:
+                  <ul style={{ margin: '4px 0 0 18px' }}>
+                    {preview.errores.slice(0, 5).map((e: string, i: number) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div style={{ maxHeight: 220, overflow: 'auto', marginTop: 10 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Categoría</th>
+                    <th className="text-right">Venta</th>
+                    <th className="text-right">Variantes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.productos.slice(0, 50).map((p: any, i: number) => (
+                    <tr key={i}>
+                      <td>{p.nombre}</td>
+                      <td className="muted">{p.categoria ?? '—'}</td>
+                      <td className="text-right">{cop(p.precio_venta)}</td>
+                      <td className="text-right muted">{p.variantes.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        <div className="modal-foot">
+          <button onClick={onClose}>Cancelar</button>
+          {preview && (
+            <button className="btn-primary btn-icon" onClick={confirmar} disabled={guardando}>
+              <Icon name="check" size={15} /> {guardando ? 'Importando...' : `Importar ${preview.productos.length}`}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

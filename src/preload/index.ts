@@ -23,6 +23,7 @@ const api = {
   usuariosList: () => ipcRenderer.invoke('usuarios:list'),
   usuariosSave: (data: unknown) => ipcRenderer.invoke('usuarios:save', data),
   usuariosToggle: (id: number, activo: boolean) => ipcRenderer.invoke('usuarios:toggle', id, activo),
+  usuariosEliminar: (id: number) => ipcRenderer.invoke('usuarios:eliminar', id),
   cambiarPassword: (id: number, actual: string, nueva: string) =>
     ipcRenderer.invoke('usuarios:cambiarPassword', id, actual, nueva),
 
@@ -54,6 +55,7 @@ const api = {
   ventasGet: (id: number) => ipcRenderer.invoke('ventas:get', id),
   ventasList: (limit?: number) => ipcRenderer.invoke('ventas:list', limit),
   facturarDian: (ventaId: number) => ipcRenderer.invoke('ventas:facturarDian', ventaId),
+  dianProbar: () => ipcRenderer.invoke('dian:probar'),
 
   // Caja
   cajaActual: () => ipcRenderer.invoke('caja:actual'),
@@ -83,6 +85,10 @@ const api = {
     ipcRenderer.invoke('comanda:cambiarCantidad', itemId, cantidad),
   comandaCobrar: (comandaId: number, pago: unknown) =>
     ipcRenderer.invoke('comanda:cobrar', comandaId, pago),
+  comandaPrecuenta: (comandaId: number, itemIds?: number[], parte?: { n: number; de: number }) =>
+    ipcRenderer.invoke('comanda:precuenta', comandaId, itemIds, parte),
+  comandaCobrarParcial: (comandaId: number, itemIds: number[], pago: unknown) =>
+    ipcRenderer.invoke('comanda:cobrarParcial', comandaId, itemIds, pago),
 
   // Impresion
   imprimirTicket: (ventaId: number) => ipcRenderer.invoke('imprimir:ticket', ventaId),
@@ -90,6 +96,12 @@ const api = {
   imprimirEtiquetas: (html: string) => ipcRenderer.invoke('imprimir:etiquetas', html),
   etiquetasPdf: (html: string) => ipcRenderer.invoke('imprimir:etiquetasPdf', html),
   cartaPublicar: () => ipcRenderer.invoke('carta:publicar'),
+  productosImportarLeer: () => ipcRenderer.invoke('productos:importarLeer'),
+  productosImportarGuardar: (productos: unknown[]) => ipcRenderer.invoke('productos:importarGuardar', productos),
+  productosPlantilla: () => ipcRenderer.invoke('productos:plantilla'),
+  fiadoCuentas: () => ipcRenderer.invoke('fiado:cuentas'),
+  fiadoDetalle: (clienteId: number) => ipcRenderer.invoke('fiado:detalle', clienteId),
+  fiadoAbonar: (data: unknown) => ipcRenderer.invoke('fiado:abonar', data),
 
   // Respaldos
   backupCrear: () => ipcRenderer.invoke('backup:crear'),

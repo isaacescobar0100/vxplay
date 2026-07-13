@@ -1,6 +1,6 @@
 {
   "name": "pos-ropa",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Sistema POS para tienda de ropa (Colombia) - ventas, inventario y facturacion electronica DIAN",
   "main": "./out/main/index.js",
   "author": "",
@@ -15,7 +15,8 @@
   "dependencies": {
     "electron-updater": "^6.8.9",
     "qrcode-generator": "^2.0.4",
-    "sql.js": "^1.10.3"
+    "sql.js": "^1.10.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

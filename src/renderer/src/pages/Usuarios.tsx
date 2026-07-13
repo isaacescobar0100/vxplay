@@ -42,6 +42,20 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
     cargar()
   }
 
+  async function eliminar(u: any): Promise<void> {
+    if (u.id === usuarioActual.id) {
+      alert('No puedes eliminar tu propio usuario')
+      return
+    }
+    if (!confirm('¿Eliminar al usuario "' + u.nombre + '"? Esta acción no se puede deshacer.')) return
+    const r: any = await window.api.usuariosEliminar(u.id)
+    if (r?.ok) {
+      cargar()
+    } else {
+      alert(r?.error ?? 'No se pudo eliminar')
+    }
+  }
+
   return (
     <div>
       <div className="page-title">Usuarios</div>
@@ -90,7 +104,12 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
                   </button>{' '}
                   <button className="btn-sm" onClick={() => toggle(u)}>
                     {u.activo ? 'Desactivar' : 'Activar'}
-                  </button>
+                  </button>{' '}
+                  {u.id !== usuarioActual.id && (
+                    <button className="btn-sm btn-danger" onClick={() => eliminar(u)}>
+                      Eliminar
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

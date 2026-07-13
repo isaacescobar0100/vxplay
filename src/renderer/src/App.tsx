@@ -11,6 +11,7 @@ import Usuarios from './pages/Usuarios'
 import Compras from './pages/Compras'
 import Inicio from './pages/Inicio'
 import Mesas from './pages/Mesas'
+import CuentasPorCobrar from './pages/CuentasPorCobrar'
 import Icon, { type IconName } from './components/Icon'
 
 export interface Usuario {
@@ -29,12 +30,14 @@ type Vista =
   | 'inventario'
   | 'compras'
   | 'clientes'
+  | 'fiado'
   | 'reportes'
   | 'usuarios'
   | 'config'
 
 // `roles` = qué roles la ven; `tipos` = en qué tipos de negocio aparece (si se omite, en todos).
-const NAV: { key: Vista; label: string; icon: IconName; roles?: string[]; tipos?: string[] }[] = [
+// `flag` = clave de config que debe estar en '1' para que aparezca (funciones opcionales).
+const NAV: { key: Vista; label: string; icon: IconName; roles?: string[]; tipos?: string[]; flag?: string }[] = [
   { key: 'inicio', label: 'Inicio', icon: 'home' },
   { key: 'mesas', label: 'Mesas', icon: 'mesa', tipos: ['bar', 'restaurante'] },
   { key: 'ventas', label: 'Punto de Venta', icon: 'cart' },
@@ -43,6 +46,7 @@ const NAV: { key: Vista; label: string; icon: IconName; roles?: string[]; tipos?
   { key: 'inventario', label: 'Inventario', icon: 'shirt', roles: ['admin'] },
   { key: 'compras', label: 'Compras', icon: 'box', roles: ['admin'] },
   { key: 'clientes', label: 'Clientes', icon: 'users' },
+  { key: 'fiado', label: 'Cuentas por cobrar', icon: 'receipt', flag: 'fiado_habilitado' },
   { key: 'reportes', label: 'Reportes', icon: 'chart', roles: ['admin'] },
   { key: 'usuarios', label: 'Usuarios', icon: 'lock', roles: ['admin'] },
   { key: 'config', label: 'Configuración', icon: 'settings', roles: ['admin'] }
@@ -57,6 +61,7 @@ export default function App(): JSX.Element {
   const [lic, setLic] = useState<any>('checking')
   const [tipoNegocio, setTipoNegocio] = useState('ropa')
   const [licenciaCodigo, setLicenciaCodigo] = useState('')
+  const [fiadoOn, setFiadoOn] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   async function cargarConfig(): Promise<void> {
@@ -64,6 +69,7 @@ export default function App(): JSX.Element {
     if (c.tienda_nombre) setTienda(c.tienda_nombre)
     setTipoNegocio(c.tipo_negocio ?? 'ropa')
     setLicenciaCodigo(c.licencia_codigo ?? '')
+    setFiadoOn(c.fiado_habilitado === '1')
   }
 
   async function verificarLicencia(): Promise<void> {
@@ -107,11 +113,12 @@ export default function App(): JSX.Element {
         </div>
         <div
           style={{
-            margin: '0 12px 14px',
+            margin: '0 0 12px',
             padding: '10px 12px',
             background: 'var(--panel-2)',
             borderRadius: 8,
-            borderLeft: '3px solid var(--primary)'
+            borderLeft: '3px solid var(--primary)',
+            flexShrink: 0
           }}
         >
           <div style={{ fontWeight: 700, fontSize: 13 }}>{tienda}</div>
@@ -127,7 +134,9 @@ export default function App(): JSX.Element {
               onClick={async () => {
                 if (confirm('¿Cambiar la licencia/tienda de este equipo? Deberás ingresar otro código.')) {
                   await window.api.licenciaCambiar()
-                  verificarLicencia()
+                  // Reinicio limpio: borra TODO el estado en memoria (config, sesión, páginas)
+                  // para que no queden datos de la tienda anterior en pantalla.
+                  window.location.reload()
                 }
               }}
             >
@@ -135,22 +144,25 @@ export default function App(): JSX.Element {
             </button>
           )}
         </div>
-        {NAV.filter(
-          (n) =>
-            (!n.roles || n.roles.includes(usuario.rol)) &&
-            (!n.tipos || n.tipos.includes(tipoNegocio))
-        ).map((n) => (
-          <button
-            key={n.key}
-            className={'nav-item' + (vista === n.key ? ' active' : '')}
-            onClick={() => setVista(n.key)}
-          >
-            <span className="nav-icon">
-              <Icon name={n.icon} size={18} />
-            </span>
-            {n.label}
-          </button>
-        ))}
+        <nav className="sidebar-nav">
+          {NAV.filter(
+            (n) =>
+              (!n.roles || n.roles.includes(usuario.rol)) &&
+              (!n.tipos || n.tipos.includes(tipoNegocio)) &&
+              (!n.flag || (n.flag === 'fiado_habilitado' && fiadoOn))
+          ).map((n) => (
+            <button
+              key={n.key}
+              className={'nav-item' + (vista === n.key ? ' active' : '')}
+              onClick={() => setVista(n.key)}
+            >
+              <span className="nav-icon">
+                <Icon name={n.icon} size={18} />
+              </span>
+              {n.label}
+            </button>
+          ))}
+        </nav>
         <div className="sidebar-foot">
           {usuario.nombre} ({usuario.rol})
           <br />
@@ -187,6 +199,7 @@ export default function App(): JSX.Element {
         {vista === 'inventario' && <Inventario />}
         {vista === 'compras' && <Compras usuario={usuario} />}
         {vista === 'clientes' && <Clientes />}
+        {vista === 'fiado' && <CuentasPorCobrar usuarioActual={usuario} />}
         {vista === 'reportes' && <Reportes />}
         {vista === 'usuarios' && <Usuarios usuarioActual={usuario} />}
         {vista === 'config' && <Configuracion />}
