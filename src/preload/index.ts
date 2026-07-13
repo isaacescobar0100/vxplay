@@ -10,6 +10,7 @@ const api = {
 
   // Licencia
   licenciaEstado: () => ipcRenderer.invoke('licencia:estado'),
+  licenciaEstadoRapido: () => ipcRenderer.invoke('licencia:estadoRapido'),
   licenciaActivar: (codigo: string) => ipcRenderer.invoke('licencia:activar', codigo),
   licenciaCambiar: () => ipcRenderer.invoke('licencia:cambiar'),
   nubeSubir: () => ipcRenderer.invoke('nube:subir'),

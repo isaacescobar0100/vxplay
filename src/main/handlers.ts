@@ -7,7 +7,7 @@ import { publicarCarta } from './carta'
 import { leerImportacion, guardarImportacion, generarPlantilla } from './importar'
 import { hashPassword, verifyPassword } from './auth'
 import { crearBackupAutomatico, listarBackups, exportarDb, importarDb } from './backup'
-import { estadoLicencia, activarLicencia } from './licencia'
+import { estadoLicencia, estadoLicenciaRapido, activarLicencia } from './licencia'
 import { subirRespaldo, bajarRespaldo, ultimoRespaldo, subirResumen } from './respaldoNube'
 import type { SqlValue } from 'sql.js'
 
@@ -21,6 +21,7 @@ export function registerHandlers(): void {
 
   // ---------- LICENCIA ----------
   ipcMain.handle('licencia:estado', () => estadoLicencia())
+  ipcMain.handle('licencia:estadoRapido', () => estadoLicenciaRapido())
   ipcMain.handle('licencia:activar', (_e, codigo: string) => activarLicencia(codigo))
   ipcMain.handle('licencia:cambiar', () => {
     // Recordar la licencia actual para detectar cambio de tienda al reactivar
