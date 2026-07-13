@@ -157,6 +157,16 @@
       }
 
       // ==== EDITAR / CREAR ====
+      // Hashea la contraseña del POS con PBKDF2-SHA256 (el POS la verifica igual, sin texto plano).
+      const hexBuf = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
+      async function hashClave(password) {
+        const enc = new TextEncoder()
+        const salt = crypto.getRandomValues(new Uint8Array(16))
+        const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits'])
+        const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256)
+        return 'pbkdf2$100000$' + hexBuf(salt) + '$' + hexBuf(bits)
+      }
+
       // Genera una licencia larga y aleatoria (no adivinable). Alfabeto sin O/0/I/1 para evitar confusión.
       window.genLicencia = function () {
         const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -202,7 +212,7 @@
               <div class="sect">Acceso al POS (login de la tienda)</div>
               <div class="grid2">
                 <div><label>Usuario</label><input id="f_pos_user" value="${esc(f('pos_usuario','admin'))}" placeholder="admin" /></div>
-                <div><label>Contraseña ${id ? '(vacío = no cambiar)' : ''}</label><input id="f_pos_pass" value="${esc(f('pos_password'))}" placeholder="${id ? '••••••' : 'clave de la tienda'}" /></div>
+                <div><label>Contraseña ${id ? '(vacío = no cambiar)' : ''}</label><input id="f_pos_pass" type="password" value="" placeholder="${id ? 'Dejar vacío para no cambiar' : 'clave de la tienda'}" /></div>
               </div>
               <div class="sect">Facturación DIAN (credenciales del proveedor)</div>
               <div class="grid2">
@@ -236,7 +246,8 @@
           pos_usuario: val('f_pos_user') || 'admin'
         }
         const posPass = val('f_pos_pass')
-        if (posPass) row.pos_password = posPass // solo si escribió una (al editar, vacío = no cambiar)
+        // La clave se guarda YA HASHEADA (PBKDF2) — nunca en texto plano en la nube.
+        if (posPass) row.pos_password = await hashClave(posPass)
         if (!row.nombre || !row.licencia) { alert('Nombre y licencia son obligatorios'); return }
         if (!id && !posPass) { alert('Define la contraseña de acceso al POS'); return }
         let error

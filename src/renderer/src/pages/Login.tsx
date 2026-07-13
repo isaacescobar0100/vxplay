@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Usuario } from '../App'
 
 export default function Login({ onLogin }: { onLogin: (u: Usuario) => void }): JSX.Element {
-  const [usuario, setUsuario] = useState('admin')
+  const [usuario, setUsuario] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [cargando, setCargando] = useState(false)
@@ -26,7 +26,7 @@ export default function Login({ onLogin }: { onLogin: (u: Usuario) => void }): J
         <p>Sistema de punto de venta</p>
         <div className="field">
           <label>Usuario</label>
-          <input value={usuario} onChange={(e) => setUsuario(e.target.value)} autoFocus />
+          <input value={usuario} onChange={(e) => setUsuario(e.target.value)} placeholder="Tu usuario" autoFocus />
         </div>
         <div className="field">
           <label>Contraseña</label>
@@ -34,16 +34,13 @@ export default function Login({ onLogin }: { onLogin: (u: Usuario) => void }): J
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="admin123"
+            placeholder="Tu contraseña"
           />
         </div>
         {error && <p style={{ color: 'var(--red)', marginBottom: 12, fontSize: 13 }}>{error}</p>}
         <button className="btn-primary" style={{ width: '100%' }} disabled={cargando}>
           {cargando ? 'Ingresando...' : 'Ingresar'}
         </button>
-        <p style={{ marginTop: 16, fontSize: 12 }}>
-          Usuario inicial: <b>admin</b> / contraseña: <b>admin123</b>
-        </p>
       </form>
     </div>
   )

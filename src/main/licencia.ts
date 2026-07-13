@@ -1,5 +1,5 @@
 import { queryOne, run, insert, getDb, persist } from './db'
-import { hashPassword, verifyPassword } from './auth'
+import { hashPassword, verifyPassword, esHash } from './auth'
 import { SUPABASE_URL, SUPABASE_ANON } from './supabase'
 
 /**
@@ -91,6 +91,10 @@ function aplicarConfigCentral(config: Record<string, string> | null | undefined)
 
 /** Crea o actualiza el usuario admin de la tienda con las credenciales del panel. */
 function sincronizarUsuarioCentral(usuario: string, password: string): void {
+  // La clave del panel puede venir YA hasheada (pbkdf2$/scrypt$) o en texto plano (legado).
+  const yaHasheada = esHash(password)
+  const guardar = yaHasheada ? password : hashPassword(password)
+
   const u = queryOne<{ id: number; password: string }>('SELECT id, password FROM usuarios WHERE usuario = ?', [
     usuario
   ])
@@ -98,11 +102,29 @@ function sincronizarUsuarioCentral(usuario: string, password: string): void {
     insert('INSERT INTO usuarios (nombre, usuario, password, rol) VALUES (?,?,?,?)', [
       'Administrador',
       usuario,
-      hashPassword(password),
+      guardar,
       'admin'
     ])
-  } else if (!verifyPassword(password, u.password)) {
-    run('UPDATE usuarios SET password = ? WHERE id = ?', [hashPassword(password), u.id])
+  } else {
+    // Actualizar solo si cambió (si viene hasheada, comparar el hash; si es texto, verificar).
+    const cambio = yaHasheada ? u.password !== guardar : !verifyPassword(password, u.password)
+    if (cambio) run('UPDATE usuarios SET password = ? WHERE id = ?', [guardar, u.id])
+  }
+
+  // Si la tienda usa un usuario propio (distinto de 'admin'), eliminamos el 'admin'
+  // por defecto SOLO si sigue con la contraseña por defecto (nadie lo personalizó).
+  // Así no queda el hueco de seguridad admin/admin123.
+  if (usuario !== 'admin') {
+    const porDefecto = queryOne<{ id: number; password: string }>(
+      "SELECT id, password FROM usuarios WHERE usuario = 'admin'"
+    )
+    if (porDefecto && verifyPassword('admin123', porDefecto.password)) {
+      try {
+        run('DELETE FROM usuarios WHERE id = ?', [porDefecto.id])
+      } catch {
+        /* si tuviera ventas asociadas, se conserva */
+      }
+    }
   }
 }
 
