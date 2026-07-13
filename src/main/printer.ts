@@ -126,6 +126,12 @@ function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean):
       ${venta.descuento ? `<tr><td class="l">Descuento</td><td class="r">-${pesos(venta.descuento)}</td></tr>` : ''}
       <tr><td class="l">IVA</td><td class="r">${pesos(venta.iva)}</td></tr>
       <tr class="b big"><td class="l">TOTAL</td><td class="r">${pesos(venta.total)}</td></tr>
+      ${
+        venta.propina > 0
+          ? `<tr><td class="l">Propina</td><td class="r">${pesos(venta.propina)}</td></tr>
+             <tr class="b big"><td class="l">TOTAL A PAGAR</td><td class="r">${pesos(venta.total + venta.propina)}</td></tr>`
+          : ''
+      }
       <tr><td class="l">Pago (${venta.metodo_pago})</td><td class="r">${pesos(venta.pago_recibido)}</td></tr>
       <tr><td class="l">Cambio</td><td class="r">${pesos(venta.cambio)}</td></tr>
     </table>
@@ -178,6 +184,97 @@ export async function imprimirTicket(
         win.close()
         if (success) resolve({ ok: true })
         else resolve({ ok: false, mensaje: failureReason })
+      }
+    )
+  })
+}
+
+/**
+ * HTML de una PRECUENTA (cuenta de mesa SIN cobrar). Sirve para mostrarle al
+ * cliente lo que lleva consumido. Si `datos.parte` viene, es una cuenta dividida.
+ */
+function generarPrecuentaHtml(datos: any, cfg: Record<string, string>, preview: boolean): string {
+  const m = medidasPapel(cfg)
+  const items = (datos.items ?? [])
+    .map(
+      (it: any) => `
+      <tr><td class="l b" colspan="2">${it.producto_nombre}</td></tr>
+      <tr><td class="l">${it.cantidad} x ${pesos(it.precio_unitario)}</td><td class="r">${pesos(
+        it.precio_unitario * it.cantidad
+      )}</td></tr>`
+    )
+    .join('')
+  const barra = preview
+    ? `<div class="toolbar no-print"><span>Cuenta - ${datos.mesa ?? ''}</span><div>
+         <button onclick="window.print()">Imprimir / Guardar PDF</button>
+         <button class="close" onclick="window.close()">Cerrar</button></div></div>`
+    : ''
+  return `<!doctype html><html><head><meta charset="utf-8"/>
+<style>
+  @page{size:${m.papel} auto;margin:0}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{background:${preview ? '#334155' : '#fff'};margin:0;padding:0}
+  .ticket{font-family:'Courier New',monospace;font-size:${m.fs};color:#000;background:#fff;font-weight:bold;-webkit-font-smoothing:none;width:${m.ancho};padding:${m.pad};${
+    preview ? 'margin:78px auto 24px;box-shadow:0 8px 30px rgba(0,0,0,.4)' : 'margin:0'
+  }}
+  .center{text-align:center}.b{font-weight:bold}.big{font-size:${m.big}}
+  table{width:100%;border-collapse:collapse}td.l{text-align:left}td.r{text-align:right}
+  .deco{overflow:hidden;white-space:nowrap;text-align:center;letter-spacing:1px;line-height:1;margin:4px 0}
+  .toolbar{position:fixed;top:0;left:0;right:0;height:54px;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-family:'Segoe UI',sans-serif;font-size:14px}
+  .toolbar button{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;margin-left:8px;cursor:pointer;background:#6366f1;color:#fff}
+  .toolbar button.close{background:#334155}
+  @media print{.no-print{display:none!important}html,body{background:#fff}.ticket{margin:0;box-shadow:none}}
+</style></head><body>
+  ${barra}
+  <div class="ticket">
+    ${cfg.tienda_logo ? `<img src="${cfg.tienda_logo}" style="max-width:${m.logo};max-height:70px;display:block;margin:0 auto 6px;background:#fff;filter:grayscale(1) contrast(2.6) brightness(1.05)"/>` : ''}
+    <div class="center b big">${cfg.tienda_nombre ?? 'Mi Tienda'}</div>
+    <div class="center">${cfg.tienda_direccion ?? ''}</div>
+    <div class="center">Tel: ${cfg.tienda_telefono ?? ''}</div>
+    <div class="deco">========================================</div>
+    <div class="center b">${datos.mesa ?? 'Cuenta'}</div>
+    ${datos.parte ? `<div class="center b">Cuenta ${datos.parte.n} de ${datos.parte.de}</div>` : ''}
+    <div>Fecha: ${datos.fecha ?? ''}</div>
+    <div class="deco">----------------------------------------</div>
+    <table>${items}</table>
+    <div class="deco">----------------------------------------</div>
+    <table>
+      <tr class="b big"><td class="l">TOTAL</td><td class="r">${pesos(datos.total)}</td></tr>
+    </table>
+    <div class="deco">========================================</div>
+    <div class="center b">*** PRECUENTA ***</div>
+    <div class="center">No es factura. Aún no pagada.</div>
+    <div class="center">Gracias por su visita</div>
+  </div>
+</body></html>`
+}
+
+/** Imprime (o previsualiza) la precuenta de una mesa. */
+export async function imprimirPrecuenta(
+  datos: any,
+  cfg: Record<string, string>
+): Promise<{ ok: boolean; mensaje?: string }> {
+  const modo = cfg.impresion_modo || 'previsualizar'
+  const deviceName = cfg.impresora_nombre || undefined
+  if (modo === 'previsualizar') {
+    const win = new BrowserWindow({
+      width: 380,
+      height: 720,
+      title: 'Cuenta - ' + (datos.mesa ?? ''),
+      autoHideMenuBar: true,
+      webPreferences: { sandbox: true }
+    })
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(generarPrecuentaHtml(datos, cfg, true)))
+    return { ok: true }
+  }
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+  await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(generarPrecuentaHtml(datos, cfg, false)))
+  return new Promise((resolve) => {
+    win.webContents.print(
+      { silent: modo === 'auto', printBackground: true, deviceName, margins: { marginType: 'none' } },
+      (success, failureReason) => {
+        win.close()
+        resolve(success ? { ok: true } : { ok: false, mensaje: failureReason })
       }
     )
   })

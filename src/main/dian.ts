@@ -30,18 +30,78 @@ function getConfig(): Record<string, string> {
   return cfg
 }
 
+/**
+ * Prueba la configuración/conexión DIAN sin emitir una factura.
+ * Sirve para verificar credenciales antes de poner el negocio en producción.
+ */
+export async function probarConexion(): Promise<{ ok: boolean; simulacion?: boolean; mensaje: string }> {
+  const cfg = getConfig()
+  if (cfg.dian_habilitado !== '1') {
+    return {
+      ok: true,
+      simulacion: true,
+      mensaje:
+        'DIAN en modo SIMULACIÓN. Cada venta genera una factura de prueba (CUFE ficticio), sin valor legal. ' +
+        'Para emitir facturas reales: activa DIAN y carga la URL y el token del proveedor (Factus/Alegra/Siigo).'
+    }
+  }
+  const apiUrl = (cfg.dian_api_url ?? '').trim()
+  const token = (cfg.dian_api_token ?? '').trim()
+  if (!apiUrl || !token) {
+    return { ok: false, mensaje: 'Faltan la URL del API o el token del proveedor DIAN en la configuración.' }
+  }
+  try {
+    const resp = await fetch(apiUrl.replace(/\/+$/, ''), {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: 'Bearer ' + token }
+    })
+    if (resp.status === 401 || resp.status === 403) {
+      return { ok: false, mensaje: 'El proveedor rechazó el token (HTTP ' + resp.status + '). Revisa el token del API.' }
+    }
+    if (resp.status >= 500) {
+      return { ok: false, mensaje: 'El proveedor no respondió bien (HTTP ' + resp.status + '). Intenta más tarde.' }
+    }
+    return {
+      ok: true,
+      mensaje:
+        'Conexión con el proveedor OK (HTTP ' +
+        resp.status +
+        '). Ambiente: ' +
+        (cfg.dian_ambiente ?? 'pruebas') +
+        '. Ya puedes emitir facturas.'
+    }
+  } catch {
+    return { ok: false, mensaje: 'No se pudo conectar con el proveedor. Revisa internet y la URL del API.' }
+  }
+}
+
+function facturaSimulada(venta: any, mensaje: string): ResultadoDian {
+  return {
+    estado: 'simulada',
+    cufe: 'SIM-' + venta.numero + '-' + Date.now().toString(36).toUpperCase(),
+    numero: 'SETP' + venta.numero,
+    qr: 'https://catalogo-vpfe.dian.gov.co/document/simulado',
+    mensaje
+  }
+}
+
 export async function facturarVenta(venta: any): Promise<ResultadoDian> {
   const cfg = getConfig()
 
+  // DIAN apagada -> factura simulada (para probar el flujo sin credenciales).
   if (cfg.dian_habilitado !== '1') {
-    // Modo simulacion: permite probar el flujo sin credenciales reales.
-    return {
-      estado: 'simulada',
-      cufe: 'SIM-' + venta.numero + '-' + Date.now().toString(36).toUpperCase(),
-      numero: 'SETP' + venta.numero,
-      qr: 'https://catalogo-vpfe.dian.gov.co/document/simulado',
-      mensaje: 'Factura simulada (modo pruebas). Configure el proveedor DIAN para emitir facturas reales.'
+    return facturaSimulada(venta, 'Factura simulada (DIAN desactivada). Actívala y configura el proveedor para emitir facturas reales.')
+  }
+
+  // DIAN activada pero SIN credenciales:
+  const tieneCredenciales = !!(cfg.dian_api_url ?? '').trim() && !!(cfg.dian_api_token ?? '').trim()
+  if (!tieneCredenciales) {
+    // En ambiente de PRUEBAS, simula para poder ver el flujo y el tiquete.
+    if ((cfg.dian_ambiente ?? 'pruebas') !== 'produccion') {
+      return facturaSimulada(venta, 'Factura de PRUEBA (sin credenciales). Carga la URL y el token del proveedor para emitir facturas reales.')
     }
+    // En PRODUCCIÓN sí exige credenciales reales.
+    return { estado: 'error', mensaje: 'Faltan las credenciales del proveedor DIAN en Configuración (URL y token).' }
   }
 
   try {

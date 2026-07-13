@@ -9,6 +9,17 @@ export default function Configuracion(): JSX.Element {
   const [nubeUltimo, setNubeUltimo] = useState<string | null>(null)
   const [nubeCargando, setNubeCargando] = useState(false)
   const [cartaCargando, setCartaCargando] = useState(false)
+  const [dianPrueba, setDianPrueba] = useState<{ ok: boolean; simulacion?: boolean; mensaje: string } | null>(null)
+  const [dianProbando, setDianProbando] = useState(false)
+
+  async function probarDian(): Promise<void> {
+    // guardamos primero para que la prueba use los valores actuales
+    for (const [k, v] of Object.entries(cfg)) await window.api.configSet(k, v ?? '')
+    setDianProbando(true)
+    const r: any = await window.api.dianProbar()
+    setDianProbando(false)
+    setDianPrueba(r)
+  }
 
   async function cargarBackups(): Promise<void> {
     setBackups((await window.api.backupListar()) as any[])
@@ -211,6 +222,74 @@ export default function Configuracion(): JSX.Element {
             Recomendado: imagen pequeña (logo en blanco/negro se ve mejor en impresora térmica). Recuerda dar <b>Guardar</b>.
           </p>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 className="section-title" style={{ marginBottom: 6 }}>
+          <Icon name="users" size={18} /> Fiado / crédito (cuentas por cobrar)
+        </h3>
+        <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+          Actívalo para poder vender <b>fiado</b> (a crédito). Aparecerá el método de pago <b>Fiado</b> al cobrar
+          (exige elegir un cliente) y el módulo <b>Cuentas por cobrar</b> para registrar abonos y ver quién debe.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14 }}>
+          <input
+            type="checkbox"
+            checked={cfg.fiado_habilitado === '1'}
+            onChange={(e) => set('fiado_habilitado', e.target.checked ? '1' : '0')}
+            style={{ width: 18, height: 18 }}
+          />
+          Habilitar ventas fiado en esta tienda
+        </label>
+        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          Recuerda dar <b>Guardar</b>. Si lo activas, reinicia la app para ver el módulo en el menú.
+        </p>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 className="section-title" style={{ marginBottom: 6 }}>
+          <Icon name="cash" size={18} /> Propina
+        </h3>
+        <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+          Al cobrar podrás registrar la propina (por mesero). Elige cómo la maneja tu negocio.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14 }}>
+          <input
+            type="checkbox"
+            checked={cfg.propina_habilitada === '1'}
+            onChange={(e) => set('propina_habilitada', e.target.checked ? '1' : '0')}
+            style={{ width: 18, height: 18 }}
+          />
+          Habilitar propina en esta tienda
+        </label>
+        {cfg.propina_habilitada === '1' && (
+          <div className="grid-2" style={{ marginTop: 12 }}>
+            <div className="field">
+              <label>Modo</label>
+              <select value={cfg.propina_modo ?? 'efectivo'} onChange={(e) => set('propina_modo', e.target.value)}>
+                <option value="efectivo">Voluntaria en efectivo (el mesero se la queda)</option>
+                <option value="factura">Obligatoria en la factura (se suma al total)</option>
+              </select>
+              <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                {cfg.propina_modo === 'factura'
+                  ? 'Se agrega el % al total de cada cuenta.'
+                  : 'Se registra la propina en efectivo; NO entra a la caja (la tiene el mesero).'}
+              </p>
+            </div>
+            <div className="field">
+              <label>% sugerido</label>
+              <input
+                type="number"
+                value={cfg.propina_pct ?? '10'}
+                onChange={(e) => set('propina_pct', e.target.value)}
+                placeholder="10"
+              />
+            </div>
+          </div>
+        )}
+        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          Recuerda dar <b>Guardar</b> y reiniciar la app para aplicarlo.
+        </p>
       </div>
 
       <div className="card" style={{ marginBottom: 20 }}>
@@ -420,6 +499,21 @@ export default function Configuracion(): JSX.Element {
               <option value="1">Habilitada (emite facturas reales)</option>
             </select>
           </div>
+        </div>
+        <div className="row" style={{ marginTop: 12, alignItems: 'center', gap: 10 }}>
+          <button className="btn-icon" onClick={probarDian} disabled={dianProbando}>
+            <Icon name="check" size={15} /> {dianProbando ? 'Probando...' : 'Probar conexión DIAN'}
+          </button>
+          {dianPrueba && (
+            <span
+              style={{
+                fontSize: 13,
+                color: dianPrueba.ok ? (dianPrueba.simulacion ? 'var(--amber)' : 'var(--green)') : 'var(--red)'
+              }}
+            >
+              {dianPrueba.mensaje}
+            </span>
+          )}
         </div>
       </div>
       )}

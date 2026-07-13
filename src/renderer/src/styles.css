@@ -75,14 +75,22 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px
 .app { display: flex; height: 100vh; }
 .sidebar {
   width: 220px; background: var(--panel); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; padding: 16px 12px;
+  display: flex; flex-direction: column; padding: 14px 12px;
+  height: 100vh; overflow: hidden;
 }
-.brand { font-size: 16px; font-weight: 700; padding: 8px 12px 20px; }
+.brand { font-size: 16px; font-weight: 700; padding: 8px 12px 14px; flex-shrink: 0; }
 .brand span { color: var(--primary); }
+/* Zona del menú: ocupa el espacio disponible y hace scroll propio si hay muchos módulos */
+.sidebar-nav {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 2px; margin: 0 -2px; padding: 0 2px;
+}
+.sidebar-nav::-webkit-scrollbar { width: 6px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 .nav-item {
-  display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px;
   border-radius: 8px; color: var(--muted); text-align: left; width: 100%;
-  background: transparent; font-weight: 500;
+  background: transparent; font-weight: 500; flex-shrink: 0;
 }
 .nav-item:hover { background: var(--panel-2); color: var(--text); }
 .nav-item.active { background: var(--primary); color: #fff; }
@@ -96,7 +104,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px
 .input-icon > svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .input-icon > input { padding-left: 36px; }
 .btn-icon { display: inline-flex; align-items: center; gap: 6px; }
-.sidebar-foot { margin-top: auto; font-size: 12px; color: var(--muted); padding: 12px 14px; }
+.sidebar-foot { flex-shrink: 0; font-size: 12px; color: var(--muted); padding: 10px 14px 4px; }
 
 .main { flex: 1; overflow: auto; padding: 24px 28px; }
 .page-title { font-size: 22px; font-weight: 700; margin-bottom: 20px; }

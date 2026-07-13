@@ -1,9 +1,10 @@
 import { ipcMain, dialog, app } from 'electron'
 import { writeFileSync } from 'fs'
 import { query, queryOne, insert, run, transaction, persist, getDb } from './db'
-import { facturarVenta } from './dian'
-import { imprimirTicket, imprimirCierre, listarImpresoras, imprimirEtiquetas, etiquetasPdf } from './printer'
+import { facturarVenta, probarConexion } from './dian'
+import { imprimirTicket, imprimirCierre, listarImpresoras, imprimirEtiquetas, etiquetasPdf, imprimirPrecuenta } from './printer'
 import { publicarCarta } from './carta'
+import { leerImportacion, guardarImportacion, generarPlantilla } from './importar'
 import { hashPassword, verifyPassword } from './auth'
 import { crearBackupAutomatico, listarBackups, exportarDb, importarDb } from './backup'
 import { estadoLicencia, activarLicencia } from './licencia'
@@ -101,6 +102,30 @@ export function registerHandlers(): void {
   ipcMain.handle('usuarios:toggle', (_e, id: number, activo: boolean) => {
     run('UPDATE usuarios SET activo = ? WHERE id = ?', [activo ? 1 : 0, id])
     return true
+  })
+
+  ipcMain.handle('usuarios:eliminar', (_e, id: number) => {
+    const u = queryOne<any>('SELECT rol FROM usuarios WHERE id = ?', [id])
+    if (!u) return { ok: false, error: 'Usuario no encontrado.' }
+    // No permitir borrar el último administrador (quedaría el equipo sin acceso admin)
+    if (u.rol === 'admin') {
+      const admins = queryOne<{ n: number }>("SELECT COUNT(*) AS n FROM usuarios WHERE rol = 'admin'")
+      if ((admins?.n ?? 0) <= 1) return { ok: false, error: 'No puedes eliminar el último administrador.' }
+    }
+    // Desvincular referencias para conservar el historial (ventas, caja, etc.)
+    for (const t of ['ventas', 'caja_sesiones', 'comandas', 'compras', 'gastos', 'movimientos_inventario']) {
+      try {
+        getDb().run(`UPDATE ${t} SET usuario_id = NULL WHERE usuario_id = ?`, [id])
+      } catch {
+        /* la tabla puede no tener usuario_id */
+      }
+    }
+    try {
+      run('DELETE FROM usuarios WHERE id = ?', [id])
+      return { ok: true }
+    } catch {
+      return { ok: false, error: 'No se pudo eliminar (tiene registros asociados). Mejor desactívalo.' }
+    }
   })
 
   ipcMain.handle('usuarios:cambiarPassword', (_e, id: number, actual: string, nueva: string) => {
@@ -328,6 +353,8 @@ export function registerHandlers(): void {
   )
 
   // Emitir factura electronica DIAN para una venta existente
+  ipcMain.handle('dian:probar', () => probarConexion())
+
   ipcMain.handle('ventas:facturarDian', async (_e, ventaId: number) => {
     const venta = obtenerVenta(ventaId)
     const resultado = await facturarVenta(venta)
@@ -451,6 +478,114 @@ export function registerHandlers(): void {
     return venta
   })
 
+  // Imprime la PRECUENTA (cuenta sin cobrar). itemIds opcional = solo esa parte (cuenta dividida).
+  ipcMain.handle('comanda:precuenta', (_e, comandaId: number, itemIds?: number[], parte?: { n: number; de: number }) => {
+    const comanda = queryOne<any>(
+      'SELECT c.*, m.nombre AS mesa_nombre FROM comandas c LEFT JOIN mesas m ON m.id = c.mesa_id WHERE c.id = ?',
+      [comandaId]
+    )
+    if (!comanda) throw new Error('Comanda no encontrada')
+    let items = query<any>('SELECT * FROM comanda_items WHERE comanda_id = ?', [comandaId])
+    if (itemIds && itemIds.length) items = items.filter((i) => itemIds.includes(i.id))
+    if (!items.length) throw new Error('No hay productos para la cuenta')
+    const total = items.reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
+    const datos = {
+      mesa: comanda.mesa_nombre ?? 'Cuenta',
+      fecha: new Date().toLocaleString('es-CO'),
+      items,
+      total,
+      parte
+    }
+    return imprimirPrecuenta(datos, obtenerConfig())
+  })
+
+  // Cobro PARCIAL: cobra solo los productos seleccionados (dividir la cuenta).
+  // Crea una venta con esos items, los quita de la comanda y, si ya no quedan, libera la mesa.
+  ipcMain.handle('comanda:cobrarParcial', (_e, comandaId: number, itemIds: number[], pago: any) => {
+    const comanda = queryOne<any>('SELECT * FROM comandas WHERE id = ?', [comandaId])
+    if (!comanda) throw new Error('Comanda no encontrada')
+    const todos = query<any>('SELECT * FROM comanda_items WHERE comanda_id = ?', [comandaId])
+    const sel = todos.filter((i) => (itemIds ?? []).includes(i.id))
+    if (!sel.length) throw new Error('Selecciona al menos un producto para cobrar')
+
+    const ventaItems = sel.map((it) => ({
+      variante_id: it.variante_id,
+      producto_nombre: it.producto_nombre,
+      cantidad: it.cantidad,
+      precio_unitario: it.precio_unitario,
+      iva_porcentaje: it.iva_porcentaje,
+      subtotal: it.precio_unitario * it.cantidad
+    }))
+    const venta = registrarVenta({ ...pago, items: ventaItems })
+
+    run(`DELETE FROM comanda_items WHERE id IN (${sel.map(() => '?').join(',')})`, sel.map((i) => i.id))
+    const restantes = query<any>('SELECT id FROM comanda_items WHERE comanda_id = ?', [comandaId])
+    if (!restantes.length) {
+      run("UPDATE comandas SET estado = 'cerrada', fecha_cierre = datetime('now','localtime'), venta_id = ? WHERE id = ?", [
+        venta.id,
+        comandaId
+      ])
+      run("UPDATE mesas SET estado = 'libre' WHERE id = ?", [comanda.mesa_id])
+    }
+    return { venta, quedanItems: restantes.length }
+  })
+
+  // ---------- FIADO / CUENTAS POR COBRAR ----------
+  // Clientes que deben (ventas fiadas menos abonos).
+  ipcMain.handle('fiado:cuentas', () =>
+    query(
+      `SELECT c.id, c.nombre, c.telefono, c.numero_documento,
+              COALESCE(f.total, 0) AS fiado,
+              COALESCE(a.total, 0) AS abonado,
+              COALESCE(f.total, 0) - COALESCE(a.total, 0) AS saldo
+         FROM clientes c
+         LEFT JOIN (SELECT cliente_id, SUM(total) total FROM ventas
+                     WHERE metodo_pago = 'fiado' AND estado = 'completada' GROUP BY cliente_id) f ON f.cliente_id = c.id
+         LEFT JOIN (SELECT cliente_id, SUM(monto) total FROM abonos GROUP BY cliente_id) a ON a.cliente_id = c.id
+        WHERE COALESCE(f.total, 0) - COALESCE(a.total, 0) > 0
+        ORDER BY saldo DESC`
+    )
+  )
+
+  ipcMain.handle('fiado:detalle', (_e, clienteId: number) => {
+    const cliente = queryOne('SELECT * FROM clientes WHERE id = ?', [clienteId])
+    const ventas = query<any>(
+      "SELECT id, numero, fecha, total FROM ventas WHERE cliente_id = ? AND metodo_pago = 'fiado' AND estado = 'completada' ORDER BY fecha DESC",
+      [clienteId]
+    )
+    const abonos = query<any>('SELECT id, fecha, monto, metodo, nota FROM abonos WHERE cliente_id = ? ORDER BY fecha DESC', [
+      clienteId
+    ])
+    const fiado = ventas.reduce((s, v) => s + v.total, 0)
+    const abonado = abonos.reduce((s, a) => s + a.monto, 0)
+    return { cliente, ventas, abonos, fiado, abonado, saldo: fiado - abonado }
+  })
+
+  ipcMain.handle('fiado:abonar', (_e, data: any) => {
+    const monto = Math.round(Number(data.monto || 0))
+    if (!data.cliente_id) return { ok: false, error: 'Falta el cliente.' }
+    if (monto <= 0) return { ok: false, error: 'El monto debe ser mayor a 0.' }
+    const fiado =
+      queryOne<{ t: number }>(
+        "SELECT COALESCE(SUM(total),0) t FROM ventas WHERE cliente_id = ? AND metodo_pago = 'fiado' AND estado = 'completada'",
+        [data.cliente_id]
+      )?.t ?? 0
+    const abonado =
+      queryOne<{ t: number }>('SELECT COALESCE(SUM(monto),0) t FROM abonos WHERE cliente_id = ?', [data.cliente_id])?.t ?? 0
+    const saldo = fiado - abonado
+    if (monto > saldo) return { ok: false, error: 'El abono supera el saldo pendiente (' + saldo + ').' }
+    const sesion = sesionAbierta()
+    insert('INSERT INTO abonos (cliente_id, sesion_id, usuario_id, metodo, monto, nota) VALUES (?,?,?,?,?,?)', [
+      data.cliente_id,
+      sesion?.id ?? null,
+      data.usuario_id ?? null,
+      data.metodo ?? 'efectivo',
+      monto,
+      data.nota ?? null
+    ])
+    return { ok: true, saldo: saldo - monto }
+  })
+
   // ---------- IMPRESION ----------
   ipcMain.handle('imprimir:ticket', async (_e, ventaId: number) => {
     const venta = obtenerVenta(ventaId)
@@ -464,6 +599,11 @@ export function registerHandlers(): void {
 
   // ---------- CARTA DIGITAL (QR por mesa) ----------
   ipcMain.handle('carta:publicar', () => publicarCarta())
+
+  // ---------- IMPORTAR PRODUCTOS (Excel/CSV) ----------
+  ipcMain.handle('productos:importarLeer', () => leerImportacion())
+  ipcMain.handle('productos:importarGuardar', (_e, productos: any[]) => guardarImportacion(productos))
+  ipcMain.handle('productos:plantilla', () => generarPlantilla())
 
   // ---------- RESPALDOS ----------
   ipcMain.handle('backup:crear', () => {
@@ -788,7 +928,16 @@ export function registerHandlers(): void {
       ) ?? { total: 0, n: 0 }
     const neto = Number((totales as any)?.total_vendido ?? 0) - devoluciones.total
 
-    return { totales, porDia, topProductos, porMetodo, utilidad, devoluciones, neto }
+    // Fiado (ventas a crédito) vs cobrado (efectivo/tarjeta/transferencia)
+    const fiado =
+      queryOne<{ total: number; n: number }>(
+        `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n
+         FROM ventas WHERE date(fecha) BETWEEN date(?) AND date(?) AND estado='completada' AND metodo_pago='fiado'`,
+        [desde, hasta]
+      ) ?? { total: 0, n: 0 }
+    const cobrado = Number((totales as any)?.total_vendido ?? 0) - fiado.total
+
+    return { totales, porDia, topProductos, porMetodo, utilidad, devoluciones, neto, fiado, cobrado }
   })
 
   ipcMain.handle('reportes:stockBajo', () =>
@@ -868,10 +1017,15 @@ function registrarVenta(venta: any): any {
     const ultimo = queryOne<{ n: number }>('SELECT COUNT(*) as n FROM ventas')
     numero = 'V' + String((ultimo?.n ?? 0) + 1).padStart(6, '0')
 
+    const propinaMonto = Math.round(Number(venta.propina ?? 0))
+    const propinaModo = venta.propina_modo ?? 'factura'
+    // La propina solo va DENTRO de la factura en modo 'factura'; en 'efectivo' es aparte.
+    const propinaFactura = propinaModo === 'factura' ? propinaMonto : 0
+
     getDb().run(
       `INSERT INTO ventas (numero, cliente_id, usuario_id, sesion_id, subtotal, descuento, iva, total,
-         metodo_pago, pago_recibido, cambio, estado)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
+         metodo_pago, pago_recibido, cambio, propina, estado)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
       [
         numero,
         venta.cliente_id ?? null,
@@ -883,10 +1037,28 @@ function registrarVenta(venta: any): any {
         venta.total,
         venta.metodo_pago ?? 'efectivo',
         venta.pago_recibido ?? venta.total,
-        venta.cambio ?? 0
+        venta.cambio ?? 0,
+        propinaFactura
       ]
     )
     ventaId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
+
+    // Registro de la propina por mesero (para arqueo y reparto)
+    if (propinaMonto > 0) {
+      const enCaja = propinaModo === 'factura' && (venta.metodo_pago ?? 'efectivo') === 'efectivo' ? 1 : 0
+      getDb().run(
+        'INSERT INTO propinas (venta_id, sesion_id, mesero_id, usuario_id, metodo, en_caja, monto) VALUES (?,?,?,?,?,?,?)',
+        [
+          ventaId,
+          sesion.id,
+          venta.propina_mesero_id ?? venta.usuario_id ?? null,
+          venta.usuario_id ?? null,
+          propinaModo === 'factura' ? (venta.metodo_pago ?? 'efectivo') : 'efectivo',
+          enCaja,
+          propinaMonto
+        ]
+      )
+    }
 
     const pagos: any[] =
       Array.isArray(venta.pagos) && venta.pagos.length
@@ -996,8 +1168,31 @@ function resumenSesion(sesion: any): any {
       sesion.id
     ])?.t ?? 0
 
+  const abonosEfectivo =
+    queryOne<{ t: number }>(
+      "SELECT COALESCE(SUM(monto),0) as t FROM abonos WHERE sesion_id = ? AND metodo = 'efectivo'",
+      [sesion.id]
+    )?.t ?? 0
+  const abonosTotal =
+    queryOne<{ t: number }>('SELECT COALESCE(SUM(monto),0) as t FROM abonos WHERE sesion_id = ?', [sesion.id])?.t ?? 0
+
+  // Propinas: las que entraron al cajón (en_caja=1) suman al efectivo esperado (pero son para repartir);
+  // el total incluye también las que el mesero se quedó (en_caja=0).
+  const propinasEnCaja =
+    queryOne<{ t: number }>('SELECT COALESCE(SUM(monto),0) as t FROM propinas WHERE sesion_id = ? AND en_caja = 1', [
+      sesion.id
+    ])?.t ?? 0
+  const propinasTotal =
+    queryOne<{ t: number }>('SELECT COALESCE(SUM(monto),0) as t FROM propinas WHERE sesion_id = ?', [sesion.id])?.t ?? 0
+  const propinasPorMesero = query<{ mesero: string; total: number }>(
+    `SELECT COALESCE(u.nombre,'(sin mesero)') as mesero, COALESCE(SUM(pr.monto),0) as total
+       FROM propinas pr LEFT JOIN usuarios u ON u.id = pr.mesero_id
+      WHERE pr.sesion_id = ? GROUP BY pr.mesero_id ORDER BY total DESC`,
+    [sesion.id]
+  )
+
   const efectivoEsperado =
-    (sesion.monto_inicial ?? 0) + ventasEfectivo - devEfectivo - gastosEfectivo
+    (sesion.monto_inicial ?? 0) + ventasEfectivo + abonosEfectivo + propinasEnCaja - devEfectivo - gastosEfectivo
 
   return {
     sesion,
@@ -1010,6 +1205,11 @@ function resumenSesion(sesion: any): any {
     devoluciones_total: devTotal,
     gastos_efectivo: gastosEfectivo,
     gastos_total: gastosTotal,
+    abonos_efectivo: abonosEfectivo,
+    abonos_total: abonosTotal,
+    propinas_en_caja: propinasEnCaja,
+    propinas_total: propinasTotal,
+    propinas_por_mesero: propinasPorMesero,
     monto_inicial: sesion.monto_inicial ?? 0,
     efectivo_esperado: efectivoEsperado
   }

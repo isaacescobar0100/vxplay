@@ -122,6 +122,7 @@ function createSchema(): void {
       metodo_pago TEXT NOT NULL DEFAULT 'efectivo',
       pago_recibido INTEGER NOT NULL DEFAULT 0,
       cambio INTEGER NOT NULL DEFAULT 0,
+      propina INTEGER NOT NULL DEFAULT 0,        -- propina incluida en la factura (modo 'factura')
       estado TEXT NOT NULL DEFAULT 'completada',
       -- Campos de facturacion electronica DIAN
       dian_estado TEXT NOT NULL DEFAULT 'pendiente',
@@ -247,6 +248,32 @@ function createSchema(): void {
       monto INTEGER NOT NULL
     );
 
+    -- Propinas (por mesero). en_caja=1 si la plata entró al cajón (propina pagada en efectivo
+    -- junto con la factura); en_caja=0 si el mesero se la quedó directo (voluntaria en efectivo).
+    CREATE TABLE IF NOT EXISTS propinas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      venta_id INTEGER REFERENCES ventas(id),
+      sesion_id INTEGER REFERENCES caja_sesiones(id),
+      mesero_id INTEGER REFERENCES usuarios(id),
+      usuario_id INTEGER REFERENCES usuarios(id),
+      fecha TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      metodo TEXT NOT NULL DEFAULT 'efectivo',
+      en_caja INTEGER NOT NULL DEFAULT 0,
+      monto INTEGER NOT NULL
+    );
+
+    -- Abonos a cuentas por cobrar (pagos que hace el cliente sobre su deuda "fiado")
+    CREATE TABLE IF NOT EXISTS abonos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+      sesion_id INTEGER REFERENCES caja_sesiones(id),
+      usuario_id INTEGER REFERENCES usuarios(id),
+      fecha TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      metodo TEXT NOT NULL DEFAULT 'efectivo',
+      monto INTEGER NOT NULL,
+      nota TEXT
+    );
+
     -- Mesas y comandas (para bar / restaurante)
     CREATE TABLE IF NOT EXISTS mesas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -295,6 +322,9 @@ function migrateSchema(): void {
   const colsCom = query<{ name: string }>('PRAGMA table_info(comandas)')
   if (!colsCom.find((c) => c.name === 'notas')) {
     db.run('ALTER TABLE comandas ADD COLUMN notas TEXT')
+  }
+  if (!cols.find((c) => c.name === 'propina')) {
+    db.run('ALTER TABLE ventas ADD COLUMN propina INTEGER NOT NULL DEFAULT 0')
   }
 }
 

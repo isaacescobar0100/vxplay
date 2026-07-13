@@ -30,6 +30,7 @@ export default function Inicio({
   const [semana, setSemana] = useState<any>(null)
   const [caja, setCaja] = useState<any | null>(null)
   const [stockBajo, setStockBajo] = useState<any[]>([])
+  const [fiadoOn, setFiadoOn] = useState(false)
 
   useEffect(() => {
     const hoy = hoyISO()
@@ -38,6 +39,7 @@ export default function Inicio({
     window.api.reportesResumen(dias[0].iso, hoy).then(setSemana)
     window.api.cajaActual().then(setCaja)
     window.api.reportesStockBajo().then((s: any) => setStockBajo(s))
+    window.api.configGetAll().then((c: any) => setFiadoOn(c.fiado_habilitado === '1'))
   }, [])
 
   const t = data?.totales
@@ -96,19 +98,49 @@ export default function Inicio({
       </div>
 
       {/* Métricas del día */}
-      <div className="grid-3" style={{ marginBottom: 20 }}>
-        <div className="stat-card">
-          <div className="stat-label">Ventas de hoy {data?.devoluciones?.total > 0 ? '(neto)' : ''}</div>
-          <div className="stat-value" style={{ color: 'var(--green)' }}>
-            {cop(data?.devoluciones?.total > 0 ? data?.neto : t?.total_vendido)}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+          gap: 16,
+          marginBottom: 20
+        }}
+      >
+        {fiadoOn ? (
+          <>
+            <div className="stat-card">
+              <div className="stat-label">Ventas cobradas hoy</div>
+              <div className="stat-value" style={{ color: 'var(--green)' }}>
+                {cop(data?.cobrado ?? 0)}
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {(t?.num_ventas ?? 0) - (data?.fiado?.n ?? 0)} venta(s) pagada(s) · efectivo/tarjeta/transf.
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Fiado de hoy (por cobrar)</div>
+              <div className="stat-value" style={{ color: 'var(--amber)' }}>
+                {cop(data?.fiado?.total ?? 0)}
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {data?.fiado?.n ?? 0} venta(s) a crédito · no entró a caja
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="stat-card">
+            <div className="stat-label">Ventas de hoy {data?.devoluciones?.total > 0 ? '(neto)' : ''}</div>
+            <div className="stat-value" style={{ color: 'var(--green)' }}>
+              {cop(data?.devoluciones?.total > 0 ? data?.neto : t?.total_vendido)}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {t?.num_ventas ?? 0} ventas
+              {data?.devoluciones?.total > 0 && (
+                <> · bruto {cop(t?.total_vendido)} − devol. {cop(data?.devoluciones?.total)}</>
+              )}
+            </div>
           </div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {t?.num_ventas ?? 0} ventas
-            {data?.devoluciones?.total > 0 && (
-              <> · bruto {cop(t?.total_vendido)} − devol. {cop(data?.devoluciones?.total)}</>
-            )}
-          </div>
-        </div>
+        )}
         <div className="stat-card">
           <div className="stat-label">Utilidad estimada hoy</div>
           <div className="stat-value">{cop(u?.utilidad)}</div>

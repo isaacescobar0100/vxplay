@@ -372,9 +372,25 @@ export function Checkout({
   const [procesando, setProcesando] = useState(false)
 
   const [dianOn, setDianOn] = useState(false)
+  const [fiadoOn, setFiadoOn] = useState(false)
+
+  // Propina
+  const [propinaOn, setPropinaOn] = useState(false)
+  const [propinaModo, setPropinaModo] = useState('efectivo') // 'efectivo' | 'factura'
+  const [propinaPct, setPropinaPct] = useState(10)
+  const [propina, setPropina] = useState<number>(0)
+  const [meseros, setMeseros] = useState<any[]>([])
+  const [propinaMesero, setPropinaMesero] = useState<number>(usuario.id)
 
   useEffect(() => {
-    window.api.configGetAll().then((c: any) => setDianOn(c.dian_habilitado === '1'))
+    window.api.configGetAll().then((c: any) => {
+      setDianOn(c.dian_habilitado === '1')
+      setFiadoOn(c.fiado_habilitado === '1')
+      setPropinaOn(c.propina_habilitada === '1')
+      setPropinaModo(c.propina_modo ?? 'efectivo')
+      setPropinaPct(Number(c.propina_pct ?? 10) || 10)
+    })
+    window.api.usuariosList().then((u: any) => setMeseros(u.filter((x: any) => x.activo)))
   }, [])
 
   // Descuento y pago mixto
@@ -426,14 +442,30 @@ export function Checkout({
   const ivaFinal = total > 0 ? Math.round(iva * (totalFinal / total)) : 0
   const subtotalFinal = totalFinal - ivaFinal
 
-  const cambio = Math.max(0, recibido - totalFinal)
+  // En modo 'factura' la propina se suma al total a pagar; en 'efectivo' va aparte.
+  useEffect(() => {
+    if (propinaOn && propinaModo === 'factura') {
+      setPropina(Math.round(totalFinal * (propinaPct / 100)))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propinaOn, propinaModo, propinaPct, totalFinal])
+
+  // La propina se suma al total a pagar solo en modo 'factura' y con un único método (no mixto).
+  const propinaEnFactura = propinaOn && propinaModo === 'factura' && !mixto ? propina : 0
+  const pagarTotal = totalFinal + propinaEnFactura
+
+  const cambio = Math.max(0, recibido - pagarTotal)
   const pagadoMixto = pagoEfectivo + pagoTarjeta + pagoTransfer
-  const faltaMixto = Math.max(0, totalFinal - pagadoMixto)
-  const cambioMixto = Math.max(0, pagadoMixto - totalFinal)
+  const faltaMixto = Math.max(0, pagarTotal - pagadoMixto)
+  const cambioMixto = Math.max(0, pagadoMixto - pagarTotal)
 
   async function confirmar(): Promise<void> {
-    if (!mixto && metodo === 'efectivo' && recibido < totalFinal) {
+    if (!mixto && metodo === 'efectivo' && recibido < pagarTotal) {
       alert('El monto recibido es menor al total')
+      return
+    }
+    if (metodo === 'fiado' && !clienteId) {
+      alert('El fiado se registra a nombre de un cliente. Elige (o crea) el cliente que queda debiendo.')
       return
     }
     if (mixto && faltaMixto > 0) {
@@ -456,6 +488,9 @@ export function Checkout({
       pagos = [{ metodo, monto: totalFinal }]
     }
 
+    // Propina a registrar: en 'factura' solo si no es mixto; en 'efectivo' es la que puso el cajero.
+    const propinaFinal = propinaOn ? (propinaModo === 'factura' ? (mixto ? 0 : propina) : propina) : 0
+
     setProcesando(true)
     const payload = {
       usuario_id: usuario.id,
@@ -466,8 +501,11 @@ export function Checkout({
       total: totalFinal,
       metodo_pago: metodoPago,
       pagos,
-      pago_recibido: mixto ? pagadoMixto : metodo === 'efectivo' ? recibido : totalFinal,
+      pago_recibido: mixto ? pagadoMixto : metodo === 'efectivo' ? recibido : metodo === 'fiado' ? 0 : pagarTotal,
       cambio: mixto ? cambioMixto : metodo === 'efectivo' ? cambio : 0,
+      propina: propinaFinal,
+      propina_modo: propinaModo,
+      propina_mesero_id: propinaMesero,
       items: cart.map((i) => ({
         variante_id: i.variante_id,
         producto_nombre: i.producto_nombre,
@@ -501,10 +539,18 @@ export function Checkout({
         <div className="grid-2">
           <div>
             <label>Método de pago</label>
-            <select value={metodo} onChange={(e) => setMetodo(e.target.value)} disabled={mixto}>
+            <select
+              value={metodo}
+              onChange={(e) => {
+                setMetodo(e.target.value)
+                if (e.target.value === 'fiado') setMixto(false)
+              }}
+              disabled={mixto}
+            >
               <option value="efectivo">Efectivo</option>
               <option value="tarjeta">Tarjeta</option>
-              <option value="transferencia">Transferencia</option>
+              <option value="transferencia">Transferencia / Nequi / Daviplata</option>
+              {fiadoOn && <option value="fiado">Fiado (crédito)</option>}
             </select>
           </div>
           <div>
@@ -634,11 +680,23 @@ export function Checkout({
                 style={{ width: 'auto' }}
                 checked={mixto}
                 onChange={(e) => setMixto(e.target.checked)}
+                disabled={metodo === 'fiado'}
               />
               Pago mixto (varios métodos)
             </label>
           </div>
         </div>
+
+        {/* Aviso de venta fiado */}
+        {metodo === 'fiado' && !mixto && (
+          <div
+            className="card"
+            style={{ marginTop: 12, background: 'rgba(245,158,11,.12)', border: '1px solid var(--amber)', fontSize: 13 }}
+          >
+            <b style={{ color: 'var(--amber)' }}>Venta fiado (a crédito).</b> No entra dinero a la caja ahora: el total
+            queda como <b>deuda del cliente</b>. Regístrale abonos luego en <b>Cuentas por cobrar</b>.
+          </div>
+        )}
 
         {/* Pago en efectivo (método simple) */}
         {!mixto && metodo === 'efectivo' && (
@@ -650,7 +708,7 @@ export function Checkout({
                   +{cop(b)}
                 </button>
               ))}
-              <button type="button" className="exacto" onClick={() => setRecibido(totalFinal)}>
+              <button type="button" className="exacto" onClick={() => setRecibido(pagarTotal)}>
                 Pago exacto
               </button>
               <button type="button" className="limpiar" onClick={() => setRecibido(0)}>
@@ -664,12 +722,12 @@ export function Checkout({
                 <input type="number" value={recibido || ''} onChange={(e) => setRecibido(Number(e.target.value))} />
               </div>
               <div>
-                <label>{recibido >= totalFinal ? 'Vuelto (cambio)' : 'Falta'}</label>
+                <label>{recibido >= pagarTotal ? 'Vuelto (cambio)' : 'Falta'}</label>
                 <div
                   className="stat-value"
-                  style={{ color: recibido >= totalFinal ? 'var(--green)' : 'var(--red)' }}
+                  style={{ color: recibido >= pagarTotal ? 'var(--green)' : 'var(--red)' }}
                 >
-                  {recibido >= totalFinal ? cop(cambio) : cop(totalFinal - recibido)}
+                  {recibido >= pagarTotal ? cop(cambio) : cop(pagarTotal - recibido)}
                 </div>
               </div>
             </div>
@@ -690,7 +748,7 @@ export function Checkout({
                 <input type="number" value={pagoTarjeta || ''} onChange={(e) => setPagoTarjeta(Number(e.target.value))} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Transferencia</label>
+                <label>Transf. / Nequi / Daviplata</label>
                 <input type="number" value={pagoTransfer || ''} onChange={(e) => setPagoTransfer(Number(e.target.value))} />
               </div>
             </div>
@@ -717,7 +775,50 @@ export function Checkout({
           </label>
         )}
 
-        <div className="card" style={{ marginTop: 16, background: 'var(--bg)' }}>
+        {propinaOn && metodo !== 'fiado' && (
+          <div className="card" style={{ marginTop: 12, background: 'var(--bg)' }}>
+            <b>
+              Propina{' '}
+              {propinaModo === 'factura' ? '(se suma a la factura)' : '(en efectivo, la recibe el mesero)'}
+            </b>
+            <div className="grid-2" style={{ marginTop: 8 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Mesero</label>
+                <select value={propinaMesero} onChange={(e) => setPropinaMesero(Number(e.target.value))}>
+                  {meseros.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Monto propina</label>
+                <input type="number" value={propina || ''} onChange={(e) => setPropina(Number(e.target.value))} />
+              </div>
+            </div>
+            <div className="row" style={{ gap: 8, marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn-sm"
+                onClick={() => setPropina(Math.round(totalFinal * (propinaPct / 100)))}
+              >
+                {propinaPct}% ({cop(Math.round(totalFinal * (propinaPct / 100)))})
+              </button>
+              <button type="button" className="btn-sm" onClick={() => setPropina(0)}>
+                Sin propina
+              </button>
+            </div>
+            {propinaModo === 'efectivo' && propina > 0 && (
+              <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                La recibe <b>{meseros.find((m) => m.id === propinaMesero)?.nombre ?? 'el mesero'}</b> en efectivo. No
+                entra a la caja.
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="card" style={{ marginTop: 12, background: 'var(--bg)' }}>
           {descuento > 0 && (
             <>
               <div className="total-line muted">
@@ -730,9 +831,21 @@ export function Checkout({
               </div>
             </>
           )}
+          {propinaEnFactura > 0 && (
+            <>
+              <div className="total-line muted">
+                <span>Cuenta</span>
+                <span>{cop(totalFinal)}</span>
+              </div>
+              <div className="total-line" style={{ color: 'var(--green)' }}>
+                <span>Propina</span>
+                <span>+{cop(propinaEnFactura)}</span>
+              </div>
+            </>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="muted">Total a pagar</span>
-            <span style={{ fontSize: 22, fontWeight: 800 }}>{cop(totalFinal)}</span>
+            <span style={{ fontSize: 22, fontWeight: 800 }}>{cop(pagarTotal)}</span>
           </div>
         </div>
 

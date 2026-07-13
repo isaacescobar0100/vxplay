@@ -359,7 +359,14 @@ function Comanda({
   const [busqueda, setBusqueda] = useState('')
   const [checkout, setCheckout] = useState(false)
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null)
+  const [dividir, setDividir] = useState(false)
+  const [sel, setSel] = useState<number[]>([])
+  const [checkoutParcial, setCheckoutParcial] = useState(false)
   const comandaId = comandaInicial.id
+
+  function toggleSel(id: number): void {
+    setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+  }
 
   useEffect(() => {
     window.api.productosList().then((p: any) => setProductos(p))
@@ -406,15 +413,34 @@ function Comanda({
   )
   const iva = total - subtotal
 
-  const cart: CartItem[] = items.map((it) => ({
-    key: 'ci' + it.id,
-    variante_id: it.variante_id,
-    producto_nombre: it.producto_nombre,
-    precio_unitario: it.precio_unitario,
-    iva_porcentaje: it.iva_porcentaje || 0,
-    cantidad: it.cantidad,
-    stock: 99999
-  }))
+  const aCart = (arr: any[]): CartItem[] =>
+    arr.map((it) => ({
+      key: 'ci' + it.id,
+      variante_id: it.variante_id,
+      producto_nombre: it.producto_nombre,
+      precio_unitario: it.precio_unitario,
+      iva_porcentaje: it.iva_porcentaje || 0,
+      cantidad: it.cantidad,
+      stock: 99999
+    }))
+  const cart = aCart(items)
+
+  // Selección para dividir la cuenta
+  const itemsSel = items.filter((i) => sel.includes(i.id))
+  const totalSel = itemsSel.reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
+  const subtotalSel = itemsSel.reduce(
+    (s, i) => s + Math.round((i.precio_unitario * i.cantidad) / (1 + (i.iva_porcentaje || 0) / 100)),
+    0
+  )
+  const ivaSel = totalSel - subtotalSel
+
+  async function trasCobroParcial(): Promise<void> {
+    const nuevos = (await recargarItems()) as any[]
+    setItems(nuevos)
+    setSel([])
+    setCheckoutParcial(false)
+    if (!nuevos.length) onSalir() // se cobró todo → mesa liberada
+  }
 
   return (
     <div className="pos">
@@ -455,20 +481,41 @@ function Comanda({
             </p>
           ) : (
             items.map((i) => (
-              <div key={i.id} className="cart-item">
+              <div
+                key={i.id}
+                className="cart-item"
+                onClick={dividir ? () => toggleSel(i.id) : undefined}
+                style={{
+                  cursor: dividir ? 'pointer' : 'default',
+                  background: dividir && sel.includes(i.id) ? 'rgba(34,197,94,.14)' : undefined
+                }}
+              >
+                {dividir && (
+                  <input
+                    type="checkbox"
+                    checked={sel.includes(i.id)}
+                    onChange={() => toggleSel(i.id)}
+                    style={{ width: 18, height: 18 }}
+                  />
+                )}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{i.producto_nombre}</div>
                   <div className="muted" style={{ fontSize: 11 }}>
                     {cop(i.precio_unitario)}
                   </div>
                 </div>
-                <button className="qty-btn" onClick={() => cambiar(i, -1)}>
-                  −
-                </button>
-                <span style={{ minWidth: 20, textAlign: 'center' }}>{i.cantidad}</span>
-                <button className="qty-btn" onClick={() => cambiar(i, 1)}>
-                  +
-                </button>
+                {!dividir && (
+                  <>
+                    <button className="qty-btn" onClick={() => cambiar(i, -1)}>
+                      −
+                    </button>
+                    <span style={{ minWidth: 20, textAlign: 'center' }}>{i.cantidad}</span>
+                    <button className="qty-btn" onClick={() => cambiar(i, 1)}>
+                      +
+                    </button>
+                  </>
+                )}
+                {dividir && <span style={{ minWidth: 20, textAlign: 'center' }}>x{i.cantidad}</span>}
                 <div style={{ minWidth: 70, textAlign: 'right', fontWeight: 600 }}>
                   {cop(i.precio_unitario * i.cantidad)}
                 </div>
@@ -489,14 +536,64 @@ function Comanda({
               <b style={{ color: 'var(--amber)' }}>Caja cerrada.</b> Abre la caja para poder cobrar.
             </div>
           )}
-          <button
-            className="btn-green"
-            style={{ width: '100%', marginTop: 14 }}
-            disabled={items.length === 0 || cajaAbierta === false}
-            onClick={() => setCheckout(true)}
-          >
-            Cobrar {cop(total)}
-          </button>
+
+          {/* Imprimir la cuenta acumulada (precuenta) y activar el modo dividir */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button
+              className="btn-icon"
+              style={{ flex: 1 }}
+              disabled={items.length === 0}
+              onClick={() => window.api.comandaPrecuenta(comandaId)}
+              title="Imprime la cuenta con todos los productos, sin cobrar"
+            >
+              <Icon name="print" size={15} /> Imprimir cuenta
+            </button>
+            <button
+              className={dividir ? 'btn-primary' : ''}
+              style={{ flex: 1 }}
+              disabled={items.length === 0}
+              onClick={() => {
+                setDividir((d) => !d)
+                setSel([])
+              }}
+            >
+              {dividir ? 'Cancelar dividir' : 'Dividir cuenta'}
+            </button>
+          </div>
+
+          {dividir ? (
+            <>
+              <p className="muted" style={{ fontSize: 12, margin: '10px 0 6px' }}>
+                Selecciona los productos de esta parte. Seleccionados: <b>{itemsSel.length}</b> · {cop(totalSel)}
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  style={{ flex: 1 }}
+                  disabled={sel.length === 0}
+                  onClick={() => window.api.comandaPrecuenta(comandaId, sel)}
+                >
+                  <Icon name="print" size={14} /> Imprimir parte
+                </button>
+                <button
+                  className="btn-green"
+                  style={{ flex: 1 }}
+                  disabled={sel.length === 0 || cajaAbierta === false}
+                  onClick={() => setCheckoutParcial(true)}
+                >
+                  Cobrar parte {cop(totalSel)}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              className="btn-green"
+              style={{ width: '100%', marginTop: 10 }}
+              disabled={items.length === 0 || cajaAbierta === false}
+              onClick={() => setCheckout(true)}
+            >
+              Cobrar todo {cop(total)}
+            </button>
+          )}
         </div>
       </div>
 
@@ -510,6 +607,22 @@ function Comanda({
           onCancel={() => setCheckout(false)}
           onCrear={(payload) => window.api.comandaCobrar(comandaId, payload)}
           onDone={onSalir}
+        />
+      )}
+
+      {checkoutParcial && (
+        <Checkout
+          cart={aCart(itemsSel)}
+          subtotal={subtotalSel}
+          iva={ivaSel}
+          total={totalSel}
+          usuario={usuario}
+          onCancel={() => setCheckoutParcial(false)}
+          onCrear={async (payload) => {
+            const r: any = await window.api.comandaCobrarParcial(comandaId, sel, payload)
+            return r.venta // Checkout imprime el ticket con venta.id
+          }}
+          onDone={trasCobroParcial}
         />
       )}
     </div>

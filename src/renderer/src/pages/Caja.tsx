@@ -124,6 +124,14 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
                       + {cop(resumen.ventas_efectivo)}
                     </td>
                   </tr>
+                  {resumen.abonos_efectivo > 0 && (
+                    <tr>
+                      <td>Abonos de fiado en efectivo</td>
+                      <td className="text-right" style={{ color: 'var(--green)' }}>
+                        + {cop(resumen.abonos_efectivo)}
+                      </td>
+                    </tr>
+                  )}
                   <tr>
                     <td>Devoluciones en efectivo</td>
                     <td className="text-right" style={{ color: 'var(--red)' }}>
@@ -136,6 +144,14 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
                       − {cop(resumen.gastos_efectivo)}
                     </td>
                   </tr>
+                  {resumen.propinas_en_caja > 0 && (
+                    <tr>
+                      <td>Propinas en efectivo (para repartir)</td>
+                      <td className="text-right" style={{ color: 'var(--green)' }}>
+                        + {cop(resumen.propinas_en_caja)}
+                      </td>
+                    </tr>
+                  )}
                   <tr style={{ fontWeight: 700 }}>
                     <td>Efectivo esperado en caja</td>
                     <td className="text-right">{cop(resumen.efectivo_esperado)}</td>
@@ -145,7 +161,7 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
                     <td className="text-right muted">{cop(resumen.ventas_tarjeta)}</td>
                   </tr>
                   <tr>
-                    <td className="muted">Ventas por transferencia</td>
+                    <td className="muted">Ventas por transferencia / Nequi / Daviplata</td>
                     <td className="text-right muted">{cop(resumen.ventas_transferencia)}</td>
                   </tr>
                   <tr style={{ fontWeight: 700 }}>
@@ -154,6 +170,26 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
                   </tr>
                 </tbody>
               </table>
+            )}
+            {resumen?.propinas_total > 0 && (
+              <div
+                className="card"
+                style={{ marginTop: 12, background: 'var(--bg)', border: '1px solid var(--border)' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                  <span>Propinas del turno</span>
+                  <span style={{ color: 'var(--green)' }}>{cop(resumen.propinas_total)}</span>
+                </div>
+                <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
+                  Para repartir a los meseros (no es plata del negocio).
+                </div>
+                {(resumen.propinas_por_mesero ?? []).map((m: any, i: number) => (
+                  <div key={i} className="total-line" style={{ fontSize: 13 }}>
+                    <span>{m.mesero}</span>
+                    <span>{cop(m.total)}</span>
+                  </div>
+                ))}
+              </div>
             )}
             <button className="btn-sm" style={{ marginTop: 12 }} onClick={cargar}>
               Actualizar
@@ -238,7 +274,7 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
               <select value={gasto.metodo} onChange={(e) => setGasto({ ...gasto, metodo: e.target.value })}>
                 <option value="efectivo">Efectivo</option>
                 <option value="tarjeta">Tarjeta</option>
-                <option value="transferencia">Transferencia</option>
+                <option value="transferencia">Transferencia / Nequi / Daviplata</option>
               </select>
             </div>
             <div className="field" style={{ flex: 1, margin: 0, minWidth: 120 }}>

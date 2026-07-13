@@ -10,7 +10,7 @@ function limpiarDatosTienda(): void {
   const db = getDb()
   const tablas = [
     'venta_pagos', 'venta_items', 'devolucion_items', 'devoluciones', 'ventas',
-    'comanda_items', 'comandas', 'mesas', 'movimientos_inventario',
+    'propinas', 'abonos', 'comanda_items', 'comandas', 'mesas', 'movimientos_inventario',
     'compra_items', 'compras', 'gastos', 'proveedores', 'caja_sesiones',
     'clientes', 'variantes', 'productos', 'categorias', 'usuarios'
   ]
@@ -18,10 +18,13 @@ function limpiarDatosTienda(): void {
     try { db.run('DELETE FROM ' + t) } catch { /* la tabla puede no existir */ }
   }
   try { db.run('DELETE FROM sqlite_sequence') } catch { /* ignore */ }
-  // Borrar config PROPIA de la tienda anterior (identidad, fiscal, DIAN, logo, tipo negocio).
-  // Se conservan las claves de impresora/hardware (impresora_nombre, ancho_papel, impresion_modo)
-  // porque son del PC físico, y las claves de licencia (licencia_*).
-  db.run("DELETE FROM config WHERE clave LIKE 'tienda_%' OR clave LIKE 'dian_%' OR clave IN ('tipo_negocio','config_central')")
+  // Borrar config PROPIA de la tienda anterior (identidad, fiscal/DIAN, logo, tipo negocio,
+  // y las funciones opcionales fiado/propina). Cada tienda define las suyas.
+  // Se CONSERVAN: impresora/hardware del PC (impresora_nombre, ancho_papel, impresion_modo),
+  // el dominio de la carta (carta_url, es el mismo para todas), y las claves de licencia (licencia_*).
+  db.run(
+    "DELETE FROM config WHERE clave LIKE 'tienda_%' OR clave LIKE 'dian_%' OR clave LIKE 'propina_%' OR clave IN ('tipo_negocio','config_central','fiado_habilitado')"
+  )
   // usuario de respaldo por si la nueva licencia no trae credenciales
   db.run("INSERT INTO usuarios (nombre, usuario, password, rol) VALUES ('Administrador','admin',?, 'admin')", [
     hashPassword('admin123')
