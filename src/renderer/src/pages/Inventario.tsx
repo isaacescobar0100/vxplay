@@ -513,6 +513,22 @@ export function ProductoModal({
     setForm((f) => ({ ...f, [k]: v }))
   }
 
+  // Autocálculo del precio de venta con IVA. Se activa mientras el usuario no lo
+  // haya escrito a mano. Si borra el campo, se vuelve a activar.
+  const [ventaAuto, setVentaAuto] = useState((producto?.precio_venta ?? 0) === 0)
+  const calcVenta = (compra: number, iva: number): number => Math.round(compra * (1 + (iva || 0) / 100))
+
+  function onPrecioCompra(v: number): void {
+    setForm((f) => ({ ...f, precio_compra: v, ...(ventaAuto ? { precio_venta: calcVenta(v, f.iva_porcentaje) } : {}) }))
+  }
+  function onIva(v: number): void {
+    setForm((f) => ({ ...f, iva_porcentaje: v, ...(ventaAuto ? { precio_venta: calcVenta(f.precio_compra, v) } : {}) }))
+  }
+  function onPrecioVenta(v: number): void {
+    setVentaAuto(v === 0) // si lo dejan vacío, vuelve al autocálculo
+    set('precio_venta', v)
+  }
+
   function setVar(i: number, k: keyof Variante, v: any): void {
     setForm((f) => ({
       ...f,
@@ -582,7 +598,7 @@ export function ProductoModal({
             <input
               type="number"
               value={form.precio_compra || ''}
-              onChange={(e) => set('precio_compra', Number(e.target.value))}
+              onChange={(e) => onPrecioCompra(Number(e.target.value))}
             />
           </div>
           <div className="field">
@@ -590,14 +606,19 @@ export function ProductoModal({
             <input
               type="number"
               value={form.precio_venta || ''}
-              onChange={(e) => set('precio_venta', Number(e.target.value))}
+              onChange={(e) => onPrecioVenta(Number(e.target.value))}
             />
+            {ventaAuto && form.precio_compra > 0 && (
+              <span className="muted" style={{ fontSize: 11 }}>
+                Auto: compra + {form.iva_porcentaje}% IVA. Puedes cambiarlo.
+              </span>
+            )}
           </div>
           <div className="field">
             <label>IVA %</label>
             <select
               value={form.iva_porcentaje}
-              onChange={(e) => set('iva_porcentaje', Number(e.target.value))}
+              onChange={(e) => onIva(Number(e.target.value))}
             >
               <option value={0}>0% (excluido)</option>
               <option value={5}>5%</option>

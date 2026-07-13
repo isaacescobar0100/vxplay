@@ -73,6 +73,8 @@ const api = {
   mesasList: () => ipcRenderer.invoke('mesas:list'),
   mesasCrear: (nombre: string, zona?: string) => ipcRenderer.invoke('mesas:crear', nombre, zona),
   mesasEliminar: (id: number) => ipcRenderer.invoke('mesas:eliminar', id),
+  mesasRenombrar: (id: number, nombre: string) => ipcRenderer.invoke('mesas:renombrar', id, nombre),
+  mesasLiberar: (mesaId: number, motivo?: string) => ipcRenderer.invoke('mesas:liberar', mesaId, motivo),
   comandaAbrir: (mesaId: number, usuarioId: number) =>
     ipcRenderer.invoke('comanda:abrir', mesaId, usuarioId),
   comandaAgregarItem: (comandaId: number, item: unknown) =>

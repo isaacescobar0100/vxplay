@@ -21,6 +21,14 @@ export function registerHandlers(): void {
   ipcMain.handle('licencia:estado', () => estadoLicencia())
   ipcMain.handle('licencia:activar', (_e, codigo: string) => activarLicencia(codigo))
   ipcMain.handle('licencia:cambiar', () => {
+    // Recordar la licencia actual para detectar cambio de tienda al reactivar
+    const actual = queryOne<{ valor: string }>("SELECT valor FROM config WHERE clave = 'licencia_codigo'")
+    if (actual?.valor) {
+      run(
+        "INSERT INTO config (clave, valor) VALUES ('licencia_anterior', ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",
+        [actual.valor]
+      )
+    }
     run(
       "DELETE FROM config WHERE clave IN ('licencia_codigo','licencia_ultimo_ok','licencia_nombre','config_central')"
     )
@@ -342,7 +350,9 @@ export function registerHandlers(): void {
       `SELECT m.*,
          c.id as comanda_id,
          COALESCE((SELECT SUM(ci.precio_unitario * ci.cantidad)
-                   FROM comanda_items ci WHERE ci.comanda_id = c.id), 0) as total
+                   FROM comanda_items ci WHERE ci.comanda_id = c.id), 0) as total,
+         COALESCE((SELECT SUM(ci.cantidad)
+                   FROM comanda_items ci WHERE ci.comanda_id = c.id), 0) as items
        FROM mesas m
        LEFT JOIN comandas c ON c.mesa_id = m.id AND c.estado = 'abierta'
        ORDER BY m.orden, m.id`
@@ -357,6 +367,25 @@ export function registerHandlers(): void {
     const m = queryOne<any>('SELECT estado FROM mesas WHERE id = ?', [id])
     if (m && m.estado === 'ocupada') throw new Error('No se puede eliminar una mesa ocupada')
     run('DELETE FROM mesas WHERE id = ?', [id])
+    return true
+  })
+
+  ipcMain.handle('mesas:renombrar', (_e, id: number, nombre: string) => {
+    run('UPDATE mesas SET nombre = ? WHERE id = ?', [String(nombre || '').trim() || 'Mesa', id])
+    return true
+  })
+
+  // Libera una mesa SIN cobrar: cancela la comanda abierta y descarta sus consumos.
+  ipcMain.handle('mesas:liberar', (_e, mesaId: number, motivo?: string) => {
+    const comanda = queryOne<any>("SELECT id FROM comandas WHERE mesa_id = ? AND estado = 'abierta'", [mesaId])
+    if (comanda) {
+      run('DELETE FROM comanda_items WHERE comanda_id = ?', [comanda.id])
+      run(
+        "UPDATE comandas SET estado = 'cancelada', fecha_cierre = datetime('now','localtime'), notas = ? WHERE id = ?",
+        [motivo ?? 'Liberada sin cobrar', comanda.id]
+      )
+    }
+    run("UPDATE mesas SET estado = 'libre' WHERE id = ?", [mesaId])
     return true
   })
 

@@ -8,6 +8,9 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
   const [mesas, setMesas] = useState<any[]>([])
   const [comanda, setComanda] = useState<any | null>(null)
   const [mesaActual, setMesaActual] = useState<any | null>(null)
+  const [renombrar, setRenombrar] = useState<any | null>(null)
+  const [liberar, setLiberar] = useState<any | null>(null)
+  const esAdmin = usuario.rol === 'admin'
 
   async function cargar(): Promise<void> {
     setMesas((await window.api.mesasList()) as any[])
@@ -26,6 +29,16 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
     const nombre = String(mesas.length + 1)
     await window.api.mesasCrear('Mesa ' + nombre)
     cargar()
+  }
+
+  async function eliminarMesa(m: any): Promise<void> {
+    if (!confirm('¿Eliminar ' + m.nombre + '?')) return
+    try {
+      await window.api.mesasEliminar(m.id)
+      cargar()
+    } catch (e: any) {
+      alert(e?.message ?? 'No se pudo eliminar')
+    }
   }
 
   if (comanda) {
@@ -63,25 +76,177 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
           {mesas.map((m) => {
             const ocupada = m.estado === 'ocupada'
             return (
-              <button
+              <div
                 key={m.id}
-                className="prod-card"
-                onClick={() => abrirMesa(m)}
-                style={{ borderColor: ocupada ? 'var(--red)' : 'var(--green)', minHeight: 90 }}
+                className="card"
+                style={{
+                  padding: 0,
+                  overflow: 'hidden',
+                  borderColor: ocupada ? 'var(--red)' : 'var(--green)',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
               >
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{m.nombre}</div>
-                <div className={'badge ' + (ocupada ? 'badge-red' : 'badge-green')} style={{ alignSelf: 'flex-start' }}>
-                  {ocupada ? 'Ocupada' : 'Libre'}
+                <button
+                  onClick={() => abrirMesa(m)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'inherit',
+                    textAlign: 'left',
+                    padding: 12,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    minHeight: 84
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{m.nombre}</div>
+                  <div
+                    className={'badge ' + (ocupada ? 'badge-red' : 'badge-green')}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {ocupada ? 'Ocupada' : 'Libre'}
+                  </div>
+                  {ocupada && (
+                    <div style={{ color: '#4ade80', fontWeight: 700 }}>
+                      {cop(m.total)}{' '}
+                      <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                        · {m.items} ítem{m.items === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  )}
+                </button>
+                <div
+                  style={{
+                    display: 'flex',
+                    borderTop: '1px solid var(--border)',
+                    background: 'rgba(255,255,255,.02)'
+                  }}
+                >
+                  <MesaAccion titulo="Renombrar" onClick={() => setRenombrar(m)} icon="edit" />
+                  {ocupada ? (
+                    esAdmin && <MesaAccion titulo="Liberar sin cobrar" onClick={() => setLiberar(m)} icon="lock" danger />
+                  ) : (
+                    <MesaAccion titulo="Eliminar mesa" onClick={() => eliminarMesa(m)} icon="trash" danger />
+                  )}
                 </div>
-                {ocupada && <div style={{ color: '#4ade80', fontWeight: 700 }}>{cop(m.total)}</div>}
-              </button>
+              </div>
             )
           })}
         </div>
       )}
       <p className="muted" style={{ marginTop: 16, fontSize: 13 }}>
         Verde = libre · Roja = ocupada (con cuenta abierta). Toca una mesa para tomar el pedido o cobrar.
+        {esAdmin && ' Liberar descarta la cuenta sin vender (solo admin).'}
       </p>
+
+      {renombrar && (
+        <RenombrarModal
+          mesa={renombrar}
+          onClose={() => setRenombrar(null)}
+          onDone={() => {
+            setRenombrar(null)
+            cargar()
+          }}
+        />
+      )}
+      {liberar && (
+        <LiberarModal
+          mesa={liberar}
+          onClose={() => setLiberar(null)}
+          onDone={() => {
+            setLiberar(null)
+            cargar()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function MesaAccion({
+  titulo,
+  onClick,
+  icon,
+  danger
+}: {
+  titulo: string
+  onClick: () => void
+  icon: 'edit' | 'trash' | 'lock' | 'qr'
+  danger?: boolean
+}): JSX.Element {
+  return (
+    <button
+      title={titulo}
+      onClick={onClick}
+      style={{
+        flex: 1,
+        background: 'none',
+        border: 'none',
+        color: danger ? 'var(--red)' : 'var(--muted)',
+        padding: '9px 0',
+        cursor: 'pointer',
+        display: 'flex',
+        justifyContent: 'center'
+      }}
+    >
+      <Icon name={icon} size={16} />
+    </button>
+  )
+}
+
+function RenombrarModal({ mesa, onClose, onDone }: { mesa: any; onClose: () => void; onDone: () => void }): JSX.Element {
+  const [nombre, setNombre] = useState(mesa.nombre)
+  async function guardar(): Promise<void> {
+    await window.api.mesasRenombrar(mesa.id, nombre)
+    onDone()
+  }
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 360 }}>
+        <h3 style={{ marginTop: 0 }}>Renombrar mesa</h3>
+        <label>Nombre</label>
+        <input value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus />
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+          <button style={{ flex: 1 }} onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="btn-primary" style={{ flex: 1 }} onClick={guardar}>
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LiberarModal({ mesa, onClose, onDone }: { mesa: any; onClose: () => void; onDone: () => void }): JSX.Element {
+  const [motivo, setMotivo] = useState('')
+  async function confirmar(): Promise<void> {
+    await window.api.mesasLiberar(mesa.id, motivo || 'Liberada sin cobrar')
+    onDone()
+  }
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 400 }}>
+        <h3 style={{ marginTop: 0, color: 'var(--red)' }}>Liberar {mesa.nombre} sin cobrar</h3>
+        <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+          Se <b>descartan los consumos</b> de esta mesa (no se registra venta) y queda libre. Úsalo solo si el cliente se
+          fue sin consumir o fue un error.
+        </p>
+        <label>Motivo (opcional)</label>
+        <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej: cliente se retiró" autoFocus />
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+          <button style={{ flex: 1 }} onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="btn-danger" style={{ flex: 1 }} onClick={confirmar}>
+            Sí, liberar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -189,7 +354,9 @@ function Comanda({
       </div>
 
       <div className="pos-cart">
-        <div className="cart-header">🍽️ {mesa?.nombre} — Cuenta</div>
+        <div className="cart-header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="mesa" size={18} /> {mesa?.nombre} — Cuenta
+        </div>
         <div className="cart-items">
           {items.length === 0 ? (
             <p className="muted" style={{ padding: 16 }}>

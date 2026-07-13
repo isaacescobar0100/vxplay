@@ -1,6 +1,33 @@
-import { queryOne, run, insert } from './db'
+import { queryOne, run, insert, getDb, persist } from './db'
 import { hashPassword, verifyPassword } from './auth'
 import { SUPABASE_URL, SUPABASE_ANON } from './supabase'
+
+/**
+ * Borra TODOS los datos operativos locales. Se usa al cambiar a una licencia
+ * DISTINTA (otra tienda) para que no se crucen los datos entre tiendas.
+ */
+function limpiarDatosTienda(): void {
+  const db = getDb()
+  const tablas = [
+    'venta_pagos', 'venta_items', 'devolucion_items', 'devoluciones', 'ventas',
+    'comanda_items', 'comandas', 'mesas', 'movimientos_inventario',
+    'compra_items', 'compras', 'gastos', 'proveedores', 'caja_sesiones',
+    'clientes', 'variantes', 'productos', 'categorias', 'usuarios'
+  ]
+  for (const t of tablas) {
+    try { db.run('DELETE FROM ' + t) } catch { /* la tabla puede no existir */ }
+  }
+  try { db.run('DELETE FROM sqlite_sequence') } catch { /* ignore */ }
+  // Borrar config PROPIA de la tienda anterior (identidad, fiscal, DIAN, logo, tipo negocio).
+  // Se conservan las claves de impresora/hardware (impresora_nombre, ancho_papel, impresion_modo)
+  // porque son del PC físico, y las claves de licencia (licencia_*).
+  db.run("DELETE FROM config WHERE clave LIKE 'tienda_%' OR clave LIKE 'dian_%' OR clave IN ('tipo_negocio','config_central')")
+  // usuario de respaldo por si la nueva licencia no trae credenciales
+  db.run("INSERT INTO usuarios (nombre, usuario, password, rol) VALUES ('Administrador','admin',?, 'admin')", [
+    hashPassword('admin123')
+  ])
+  persist()
+}
 
 /**
  * Verificación de licencia contra Supabase.
@@ -155,10 +182,16 @@ export async function activarLicencia(codigo: string): Promise<{ ok: boolean; er
   if (res === null) return { ok: false, error: 'Sin conexión a internet. Conéctate para activar.' }
 
   if (res.estado === 'activa') {
+    // Si se activa una licencia DISTINTA (otra tienda), limpiar los datos de la anterior
+    const anterior = getCfg('licencia_anterior') ?? getCfg('licencia_codigo')
+    if (anterior && anterior !== limpio) {
+      limpiarDatosTienda()
+    }
+    run("DELETE FROM config WHERE clave = 'licencia_anterior'")
     setCfg('licencia_codigo', limpio)
     setCfg('licencia_ultimo_ok', String(Date.now()))
     if (res.nombre) setCfg('licencia_nombre', res.nombre)
-    aplicarConfigCentral(res.config)
+    aplicarConfigCentral(res.config) // aplica config + usuario de la NUEVA tienda
     return { ok: true, nombre: res.nombre }
   }
   if (res.estado === 'invalida') return { ok: false, error: 'Código de licencia no encontrado.' }

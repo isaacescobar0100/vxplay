@@ -262,8 +262,9 @@ function createSchema(): void {
       usuario_id INTEGER REFERENCES usuarios(id),
       fecha_apertura TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       fecha_cierre TEXT,
-      estado TEXT NOT NULL DEFAULT 'abierta',  -- abierta | cerrada
-      venta_id INTEGER REFERENCES ventas(id)
+      estado TEXT NOT NULL DEFAULT 'abierta',  -- abierta | cerrada | cancelada
+      venta_id INTEGER REFERENCES ventas(id),
+      notas TEXT
     );
 
     CREATE TABLE IF NOT EXISTS comanda_items (
@@ -290,6 +291,10 @@ function migrateSchema(): void {
   const cols = query<{ name: string }>('PRAGMA table_info(ventas)')
   if (!cols.find((c) => c.name === 'sesion_id')) {
     db.run('ALTER TABLE ventas ADD COLUMN sesion_id INTEGER')
+  }
+  const colsCom = query<{ name: string }>('PRAGMA table_info(comandas)')
+  if (!colsCom.find((c) => c.name === 'notas')) {
+    db.run('ALTER TABLE comandas ADD COLUMN notas TEXT')
   }
 }
 

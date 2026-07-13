@@ -1,0 +1,18 @@
+const fs = require('fs'), path = require('path'), os = require('os'), initSqlJs = require('sql.js')
+;(async () => {
+  const wasm = fs.readFileSync(path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'))
+  const SQL = await initSqlJs({ wasmBinary: new Uint8Array(wasm).buffer })
+  const db = new SQL.Database(fs.readFileSync(path.join(os.homedir(), 'AppData', 'Roaming', 'pos-ropa', 'pos-ropa.sqlite')))
+  const val = (s) => { const r = db.exec(s); return r.length ? r[0].values[0][0] : null }
+  console.log('licencia_codigo:', val("SELECT valor FROM config WHERE clave='licencia_codigo'"))
+  console.log('licencia_anterior:', val("SELECT valor FROM config WHERE clave='licencia_anterior'"))
+  console.log('tipo_negocio:', val("SELECT valor FROM config WHERE clave='tipo_negocio'"))
+  console.log('tienda_nombre:', val("SELECT valor FROM config WHERE clave='tienda_nombre'"))
+  console.log('--- conteos ---')
+  console.log('productos:', val('SELECT COUNT(*) FROM productos'))
+  console.log('ventas:', val('SELECT COUNT(*) FROM ventas'))
+  console.log('clientes:', val('SELECT COUNT(*) FROM clientes'))
+  console.log('usuarios:', val('SELECT COUNT(*) FROM usuarios'))
+  const u = db.exec("SELECT usuario FROM usuarios")
+  console.log('lista usuarios:', u.length ? u[0].values.map(r => r[0]).join(', ') : '(ninguno)')
+})()
