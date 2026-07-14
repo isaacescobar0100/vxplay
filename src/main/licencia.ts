@@ -1,6 +1,7 @@
 import { queryOne, run, insert, getDb, persist } from './db'
 import { hashPassword, verifyPassword, esHash } from './auth'
 import { SUPABASE_URL, SUPABASE_ANON } from './supabase'
+import { limpiarBackupsLocales } from './backup'
 
 /**
  * Borra TODOS los datos operativos locales. Se usa al cambiar a una licencia
@@ -30,6 +31,8 @@ function limpiarDatosTienda(): void {
     hashPassword('admin123')
   ])
   persist()
+  // Borrar los respaldos locales de la tienda anterior (no deben quedar en este equipo)
+  limpiarBackupsLocales()
 }
 
 /**
