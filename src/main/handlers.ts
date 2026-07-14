@@ -948,13 +948,26 @@ export function registerHandlers(): void {
        WHERE date(v.fecha) BETWEEN date(?) AND date(?) AND v.estado='completada'`,
       [desde, hasta]
     ) as any
+    // Utilidad "perdida" por devoluciones (se resta: el producto vuelve al stock y ya no deja ganancia)
+    const utilDev = queryOne(
+      `SELECT
+         COALESCE(SUM((di.precio_unitario * 1.0 / (1 + COALESCE(p.iva_porcentaje,0)/100.0)) * di.cantidad),0) as base,
+         COALESCE(SUM(p.precio_compra * di.cantidad),0) as costo
+       FROM devolucion_items di
+       JOIN devoluciones d ON d.id = di.devolucion_id
+       LEFT JOIN variantes va ON va.id = di.variante_id
+       LEFT JOIN productos p ON p.id = va.producto_id
+       WHERE date(d.fecha) BETWEEN date(?) AND date(?)`,
+      [desde, hasta]
+    ) as any
     if (utilidad) {
-      utilidad.ingreso_base = Math.round(utilidad.ingreso_base)
-      utilidad.utilidad = Math.round(utilidad.ingreso_base - utilidad.costo)
-      utilidad.margen =
-        utilidad.ingreso_base > 0
-          ? Math.round((utilidad.utilidad / utilidad.ingreso_base) * 100)
-          : 0
+      // Base y costo netos = ventas − devoluciones
+      const baseNeta = Math.round((utilidad.ingreso_base ?? 0) - (utilDev?.base ?? 0))
+      const costoNeto = Math.round((utilidad.costo ?? 0) - (utilDev?.costo ?? 0))
+      utilidad.ingreso_base = baseNeta
+      utilidad.costo = costoNeto
+      utilidad.utilidad = Math.round(baseNeta - costoNeto)
+      utilidad.margen = baseNeta > 0 ? Math.round((utilidad.utilidad / baseNeta) * 100) : 0
     }
     const devoluciones =
       queryOne<{ total: number; n: number }>(
