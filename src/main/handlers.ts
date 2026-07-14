@@ -157,6 +157,41 @@ export function registerHandlers(): void {
     return true
   })
 
+  // Reinicia los datos de la tienda (pasar de pruebas a operación real).
+  // Borra ventas y movimientos; opcionalmente productos y clientes.
+  // CONSERVA usuarios y configuración (licencia, datos de la tienda, impresora).
+  ipcMain.handle('tienda:reiniciarDatos', (_e, borrarCatalogo: boolean) => {
+    const db = getDb()
+    const operativas = [
+      'venta_pagos', 'venta_items', 'devolucion_items', 'devoluciones', 'ventas',
+      'propinas', 'abonos', 'comanda_items', 'comandas', 'mesas',
+      'movimientos_inventario', 'compra_items', 'compras', 'gastos', 'caja_sesiones'
+    ]
+    for (const t of operativas) {
+      try {
+        db.run('DELETE FROM ' + t)
+      } catch {
+        /* la tabla puede no existir */
+      }
+    }
+    if (borrarCatalogo) {
+      for (const t of ['variantes', 'productos', 'categorias', 'clientes']) {
+        try {
+          db.run('DELETE FROM ' + t)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    try {
+      db.run('DELETE FROM sqlite_sequence')
+    } catch {
+      /* ignore */
+    }
+    persist()
+    return { ok: true }
+  })
+
   // ---------- CATEGORIAS ----------
   ipcMain.handle('categorias:list', () =>
     query('SELECT * FROM categorias ORDER BY nombre')

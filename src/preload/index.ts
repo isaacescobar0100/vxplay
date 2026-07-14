@@ -31,6 +31,7 @@ const api = {
   // Configuracion
   configGetAll: () => ipcRenderer.invoke('config:getAll'),
   configSet: (clave: string, valor: string) => ipcRenderer.invoke('config:set', clave, valor),
+  tiendaReiniciarDatos: (borrarCatalogo: boolean) => ipcRenderer.invoke('tienda:reiniciarDatos', borrarCatalogo),
 
   // Categorias
   categoriasList: () => ipcRenderer.invoke('categorias:list'),

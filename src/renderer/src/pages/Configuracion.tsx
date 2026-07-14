@@ -11,6 +11,7 @@ export default function Configuracion(): JSX.Element {
   const [cartaCargando, setCartaCargando] = useState(false)
   const [dianPrueba, setDianPrueba] = useState<{ ok: boolean; simulacion?: boolean; mensaje: string } | null>(null)
   const [dianProbando, setDianProbando] = useState(false)
+  const [reiniciar, setReiniciar] = useState(false)
 
   async function probarDian(): Promise<void> {
     // guardamos primero para que la prueba use los valores actuales
@@ -501,6 +502,73 @@ export default function Configuracion(): JSX.Element {
             <Icon name="check" size={16} /> Guardado
           </span>
         )}
+      </div>
+
+      {/* Zona de peligro: reiniciar datos (pasar de pruebas a operación real) */}
+      <div className="card" style={{ marginTop: 28, border: '1px solid var(--red)' }}>
+        <h3 className="section-title" style={{ marginBottom: 6, color: 'var(--red)' }}>
+          <Icon name="alert" size={18} /> Zona de peligro — Reiniciar datos
+        </h3>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
+          Borra las <b>ventas, movimientos, caja, compras, gastos y mesas</b> para dejar la tienda lista para operar
+          de verdad (después de las pruebas). <b>Conserva usuarios y configuración.</b> Esta acción <b>no se puede
+          deshacer</b>.
+        </p>
+        <button className="btn-danger btn-icon" onClick={() => setReiniciar(true)}>
+          <Icon name="trash" size={15} /> Reiniciar datos de la tienda
+        </button>
+      </div>
+
+      {reiniciar && <ReiniciarModal onClose={() => setReiniciar(false)} />}
+    </div>
+  )
+}
+
+function ReiniciarModal({ onClose }: { onClose: () => void }): JSX.Element {
+  const [borrarCatalogo, setBorrarCatalogo] = useState(false)
+  const [texto, setTexto] = useState('')
+  const [procesando, setProcesando] = useState(false)
+  const confirmado = texto.trim().toUpperCase() === 'REINICIAR'
+
+  async function ejecutar(): Promise<void> {
+    if (!confirmado) return
+    setProcesando(true)
+    await window.api.tiendaReiniciarDatos(borrarCatalogo)
+    // recargar para reflejar la base limpia
+    window.location.reload()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 460 }}>
+        <h3 style={{ marginTop: 0, color: 'var(--red)' }}>Reiniciar datos de la tienda</h3>
+        <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+          Se borrarán <b>ventas, devoluciones, movimientos de inventario, caja, compras, gastos, mesas, abonos y
+          propinas</b>. Se conservan <b>usuarios y configuración</b>. <b>No se puede deshacer.</b>
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, margin: '12px 0' }}>
+          <input
+            type="checkbox"
+            checked={borrarCatalogo}
+            onChange={(e) => setBorrarCatalogo(e.target.checked)}
+            style={{ width: 18, height: 18 }}
+          />
+          También borrar <b>productos y clientes</b> (empezar 100% de cero)
+        </label>
+        <div className="field">
+          <label>
+            Para confirmar, escribe <b>REINICIAR</b>:
+          </label>
+          <input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="REINICIAR" autoFocus />
+        </div>
+        <div className="modal-foot">
+          <button onClick={onClose} disabled={procesando}>
+            Cancelar
+          </button>
+          <button className="btn-danger" onClick={ejecutar} disabled={!confirmado || procesando}>
+            {procesando ? 'Borrando...' : 'Sí, reiniciar'}
+          </button>
+        </div>
       </div>
     </div>
   )
