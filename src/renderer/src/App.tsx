@@ -282,6 +282,12 @@ function Bloqueado({ motivo, onReintentar }: { motivo: string; onReintentar: () 
     await onReintentar()
     setCargando(false)
   }
+  async function cambiarLicencia(): Promise<void> {
+    if (confirm('¿Activar otra licencia en este equipo? Se borrará la licencia actual y podrás ingresar un código nuevo.')) {
+      await window.api.licenciaCambiar()
+      window.location.reload()
+    }
+  }
   return (
     <div className="login-wrap">
       <div className="login-card" style={{ textAlign: 'center', borderColor: 'var(--red)' }}>
@@ -291,10 +297,13 @@ function Bloqueado({ motivo, onReintentar }: { motivo: string; onReintentar: () 
         <h1 style={{ fontSize: 20 }}>Sistema bloqueado</h1>
         <p style={{ color: 'var(--red)', margin: '14px 0', fontSize: 14 }}>{motivo}</p>
         <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
-          Una vez soluciones el pago o el problema con el proveedor, presiona reintentar.
+          Si ya solucionaste el pago, presiona <b>Reintentar</b>. Si esta licencia ya no sirve, activa otra.
         </p>
         <button className="btn-primary" style={{ width: '100%' }} onClick={reintentar} disabled={cargando}>
           {cargando ? 'Verificando...' : 'Reintentar'}
+        </button>
+        <button style={{ width: '100%', marginTop: 10 }} onClick={cambiarLicencia}>
+          Activar otra licencia
         </button>
       </div>
     </div>
