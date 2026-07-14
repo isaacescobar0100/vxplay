@@ -142,6 +142,20 @@ export default function Inicio({
           </div>
         )}
         <div className="stat-card">
+          <div className="stat-label">Devoluciones de hoy</div>
+          <div
+            className="stat-value"
+            style={{ color: (data?.devoluciones?.total ?? 0) > 0 ? 'var(--red)' : 'var(--green)' }}
+          >
+            {cop(data?.devoluciones?.total ?? 0)}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {(data?.devoluciones?.n ?? 0) > 0
+              ? `${data?.devoluciones?.n} devolución(es)`
+              : 'sin devoluciones'}
+          </div>
+        </div>
+        <div className="stat-card">
           <div className="stat-label">Utilidad estimada hoy</div>
           <div className="stat-value">{cop(u?.utilidad)}</div>
           <div className="muted" style={{ fontSize: 12 }}>
