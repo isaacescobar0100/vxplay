@@ -25,6 +25,27 @@ function backupsDir(): string {
   return d
 }
 
+/**
+ * Borra TODOS los respaldos locales. Se usa al cambiar de licencia (otra tienda)
+ * para que no queden copias de la tienda anterior en este equipo.
+ */
+export function limpiarBackupsLocales(): void {
+  try {
+    const dir = backupsDir()
+    for (const f of readdirSync(dir)) {
+      if (f.endsWith('.sqlite')) {
+        try {
+          unlinkSync(join(dir, f))
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch {
+    /* la carpeta puede no existir */
+  }
+}
+
 /** Crea una copia con marca de tiempo y conserva solo las últimas `maxBackups`. */
 export function crearBackupAutomatico(maxBackups = 15): string | null {
   persist()
