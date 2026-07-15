@@ -109,7 +109,14 @@ export default function Reportes(): JSX.Element {
         </button>
       </div>
 
-      <div className="grid-3" style={{ marginBottom: 20 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: 16,
+          marginBottom: 20
+        }}
+      >
         <div className="stat-card">
           <div className="stat-label">Ventas brutas</div>
           <div className="stat-value">{cop(t?.total_vendido)}</div>
@@ -129,9 +136,6 @@ export default function Reportes(): JSX.Element {
           </div>
           {dianOn && <div className="muted" style={{ fontSize: 12 }}>IVA: {cop(t?.total_iva)}</div>}
         </div>
-      </div>
-
-      <div className="grid-3" style={{ marginBottom: 20 }}>
         <div className="stat-card">
           <div className="stat-label">Utilidad estimada</div>
           <div className="stat-value" style={{ color: 'var(--green)' }}>
@@ -151,9 +155,6 @@ export default function Reportes(): JSX.Element {
             <div className="stat-value">{cop(data?.utilidad?.ingreso_base)}</div>
           </div>
         )}
-      </div>
-
-      <div className="grid-3" style={{ marginBottom: 20 }}>
         <div className="stat-card">
           <div className="stat-label">Gastos / egresos</div>
           <div className="stat-value" style={{ color: 'var(--red)' }}>
