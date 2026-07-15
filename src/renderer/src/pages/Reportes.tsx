@@ -14,6 +14,7 @@ export default function Reportes(): JSX.Element {
   const [stockBajo, setStockBajo] = useState<any[]>([])
   const [exportando, setExportando] = useState(false)
   const [fiadoOn, setFiadoOn] = useState(false)
+  const [dianOn, setDianOn] = useState(false)
 
   async function cargarRango(d1: string, d2: string): Promise<void> {
     setData(await window.api.reportesResumen(d1, d2))
@@ -49,7 +50,10 @@ export default function Reportes(): JSX.Element {
 
   useEffect(() => {
     cargar()
-    window.api.configGetAll().then((c: any) => setFiadoOn(c.fiado_habilitado === '1'))
+    window.api.configGetAll().then((c: any) => {
+      setFiadoOn(c.fiado_habilitado === '1')
+      setDianOn(c.dian_habilitado === '1')
+    })
   }, [])
 
   const t = data?.totales
@@ -123,7 +127,7 @@ export default function Reportes(): JSX.Element {
           <div className="stat-value" style={{ color: 'var(--green)' }}>
             {cop(data?.neto)}
           </div>
-          <div className="muted" style={{ fontSize: 12 }}>IVA: {cop(t?.total_iva)}</div>
+          {dianOn && <div className="muted" style={{ fontSize: 12 }}>IVA: {cop(t?.total_iva)}</div>}
         </div>
       </div>
 
@@ -141,10 +145,12 @@ export default function Reportes(): JSX.Element {
           <div className="stat-label">Costo de mercancía vendida</div>
           <div className="stat-value">{cop(data?.utilidad?.costo)}</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Ingreso sin IVA</div>
-          <div className="stat-value">{cop(data?.utilidad?.ingreso_base)}</div>
-        </div>
+        {dianOn && (
+          <div className="stat-card">
+            <div className="stat-label">Ingreso sin IVA</div>
+            <div className="stat-value">{cop(data?.utilidad?.ingreso_base)}</div>
+          </div>
+        )}
       </div>
 
       <div className="grid-3" style={{ marginBottom: 20 }}>

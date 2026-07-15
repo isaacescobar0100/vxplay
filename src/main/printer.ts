@@ -122,9 +122,13 @@ function generarHtml(venta: any, cfg: Record<string, string>, preview: boolean):
     <table>${items}</table>
     <div class="deco">----------------------------------------</div>
     <table class="tot">
-      <tr><td class="l">Subtotal</td><td class="r">${pesos(venta.subtotal)}</td></tr>
+      ${
+        venta.iva > 0
+          ? `<tr><td class="l">Subtotal</td><td class="r">${pesos(venta.subtotal)}</td></tr>`
+          : ''
+      }
       ${venta.descuento ? `<tr><td class="l">Descuento</td><td class="r">-${pesos(venta.descuento)}</td></tr>` : ''}
-      <tr><td class="l">IVA</td><td class="r">${pesos(venta.iva)}</td></tr>
+      ${venta.iva > 0 ? `<tr><td class="l">IVA</td><td class="r">${pesos(venta.iva)}</td></tr>` : ''}
       <tr class="b big"><td class="l">TOTAL</td><td class="r">${pesos(venta.total)}</td></tr>
       ${
         venta.propina > 0

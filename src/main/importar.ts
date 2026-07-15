@@ -2,6 +2,11 @@ import { dialog } from 'electron'
 import * as XLSX from 'xlsx'
 import { query, queryOne, getDb, transaction, persist } from './db'
 
+/** ¿La tienda maneja IVA? (solo si tiene DIAN habilitada). */
+function dianActiva(): boolean {
+  return queryOne<{ valor: string }>("SELECT valor FROM config WHERE clave = 'dian_habilitado'")?.valor === '1'
+}
+
 /**
  * Importación masiva de productos desde Excel (.xlsx) o CSV.
  * Cada fila es un producto (o una variante talla/color si se repite el nombre).
@@ -93,6 +98,7 @@ export async function leerImportacion(): Promise<{
     return { ok: false, error: 'No se encontró la columna "nombre". Usa la plantilla como guía.' }
   }
 
+  const dianOn = dianActiva()
   const errores: string[] = []
   const porNombre: Record<string, ProductoImportado> = {}
   let totalVariantes = 0
@@ -114,7 +120,7 @@ export async function leerImportacion(): Promise<{
         sku: String(r.sku ?? '').trim() || null,
         precio_compra: num(r.precio_compra),
         precio_venta: num(r.precio_venta),
-        iva_porcentaje: r.iva === '' || r.iva == null ? 19 : num(r.iva),
+        iva_porcentaje: r.iva === '' || r.iva == null ? (dianOn ? 19 : 0) : num(r.iva),
         variantes: []
       }
     }
@@ -215,6 +221,9 @@ export async function generarPlantilla(): Promise<{ ok: boolean; ruta?: string }
       { nombre: EJ + 'Producto 1', categoria: 'General', marca: '', sku: 'PRD-001', precio_compra: 5000, precio_venta: 9000, iva: 19, codigo_barras: '', talla: '', color: '', stock: 20, stock_minimo: 5 }
     ]
   }
+  // Sin DIAN no se maneja IVA: quitar esa columna de la plantilla
+  if (!dianActiva()) filas.forEach((f) => delete f.iva)
+
   const ws = XLSX.utils.json_to_sheet(filas)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Productos')

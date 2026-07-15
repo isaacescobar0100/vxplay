@@ -42,13 +42,17 @@ export default function Inventario(): JSX.Element {
   const [stockDe, setStockDe] = useState<any | null>(null)
   const [categorias, setCategorias] = useState<any[]>([])
   const [tipoNegocio, setTipoNegocio] = useState('ropa')
+  const [dianOn, setDianOn] = useState(false)
   const [etiquetas, setEtiquetas] = useState(false)
   const [importar, setImportar] = useState(false)
 
   useEffect(() => {
     cargar()
     window.api.categoriasList().then((c: any) => setCategorias(c))
-    window.api.configGetAll().then((c: any) => setTipoNegocio(c.tipo_negocio ?? 'ropa'))
+    window.api.configGetAll().then((c: any) => {
+      setTipoNegocio(c.tipo_negocio ?? 'ropa')
+      setDianOn(c.dian_habilitado === '1')
+    })
   }, [])
 
   async function cargar(): Promise<void> {
@@ -166,6 +170,7 @@ export default function Inventario(): JSX.Element {
           producto={editando}
           categorias={categorias}
           esRopa={tipoNegocio === 'ropa'}
+          dianOn={dianOn}
           onClose={() => setEditando(null)}
           onSaved={() => {
             setEditando(null)
@@ -612,6 +617,7 @@ export function ProductoModal({
   producto,
   categorias,
   esRopa = true,
+  dianOn = false,
   onClose,
   onSaved,
   onCategoriaCreada
@@ -619,12 +625,15 @@ export function ProductoModal({
   producto: Producto
   categorias: any[]
   esRopa?: boolean
+  dianOn?: boolean
   onClose: () => void
   onSaved: () => void
   onCategoriaCreada: () => void
 }): JSX.Element {
   const [form, setForm] = useState<Producto>({
     ...producto,
+    // Sin DIAN no se maneja IVA: el precio es final (IVA = 0)
+    iva_porcentaje: dianOn ? producto.iva_porcentaje : 0,
     variantes: producto.variantes?.length
       ? producto.variantes.map((v: any) => ({ ...v }))
       : [{ talla: '', color: '', codigo_barras: '', stock: 0, stock_minimo: 1 }]
@@ -715,7 +724,7 @@ export function ProductoModal({
           </div>
         </div>
 
-        <div className="grid-3">
+        <div className={dianOn ? 'grid-3' : 'grid-2'}>
           <div className="field">
             <label>Precio compra</label>
             <input
@@ -725,7 +734,7 @@ export function ProductoModal({
             />
           </div>
           <div className="field">
-            <label>Precio venta (con IVA)</label>
+            <label>{dianOn ? 'Precio venta (con IVA)' : 'Precio venta'}</label>
             <input
               type="number"
               value={form.precio_venta || ''}
@@ -733,21 +742,20 @@ export function ProductoModal({
             />
             {ventaAuto && form.precio_compra > 0 && (
               <span className="muted" style={{ fontSize: 11 }}>
-                Auto: compra + {form.iva_porcentaje}% IVA. Puedes cambiarlo.
+                {dianOn ? `Auto: compra + ${form.iva_porcentaje}% IVA. Puedes cambiarlo.` : 'Auto: igual a la compra. Puedes cambiarlo.'}
               </span>
             )}
           </div>
-          <div className="field">
-            <label>IVA %</label>
-            <select
-              value={form.iva_porcentaje}
-              onChange={(e) => onIva(Number(e.target.value))}
-            >
-              <option value={0}>0% (excluido)</option>
-              <option value={5}>5%</option>
-              <option value={19}>19%</option>
-            </select>
-          </div>
+          {dianOn && (
+            <div className="field">
+              <label>IVA %</label>
+              <select value={form.iva_porcentaje} onChange={(e) => onIva(Number(e.target.value))}>
+                <option value={0}>0% (excluido)</option>
+                <option value={5}>5%</option>
+                <option value={19}>19%</option>
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="field">
