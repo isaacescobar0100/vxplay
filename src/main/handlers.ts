@@ -986,7 +986,17 @@ export function registerHandlers(): void {
       ) ?? { total: 0, n: 0 }
     const cobrado = Number((totales as any)?.total_vendido ?? 0) - fiado.total
 
-    return { totales, porDia, topProductos, porMetodo, utilidad, devoluciones, neto, fiado, cobrado }
+    // Gastos / egresos del periodo
+    const gastos =
+      queryOne<{ total: number; n: number }>(
+        `SELECT COALESCE(SUM(monto),0) as total, COUNT(*) as n
+         FROM gastos WHERE date(fecha) BETWEEN date(?) AND date(?)`,
+        [desde, hasta]
+      ) ?? { total: 0, n: 0 }
+    // Ganancia neta = utilidad de mercancía − gastos operativos
+    const gananciaNeta = Math.round(((utilidad as any)?.utilidad ?? 0) - gastos.total)
+
+    return { totales, porDia, topProductos, porMetodo, utilidad, devoluciones, neto, fiado, cobrado, gastos, gananciaNeta }
   })
 
   ipcMain.handle('reportes:stockBajo', () =>

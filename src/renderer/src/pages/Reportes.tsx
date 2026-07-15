@@ -145,6 +145,33 @@ export default function Reportes(): JSX.Element {
         </div>
       </div>
 
+      <div className="grid-3" style={{ marginBottom: 20 }}>
+        <div className="stat-card">
+          <div className="stat-label">Gastos / egresos</div>
+          <div className="stat-value" style={{ color: 'var(--red)' }}>
+            −{cop(data?.gastos?.total)}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>{data?.gastos?.n ?? 0} egreso(s)</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Ganancia neta (− gastos)</div>
+          <div
+            className="stat-value"
+            style={{ color: (data?.gananciaNeta ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}
+          >
+            {cop(data?.gananciaNeta)}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>utilidad − gastos</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Fiado (por cobrar)</div>
+          <div className="stat-value" style={{ color: 'var(--amber)' }}>
+            {cop(data?.fiado?.total)}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>{data?.fiado?.n ?? 0} venta(s) a crédito</div>
+        </div>
+      </div>
+
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div className="card" style={{ flex: 1 }}>
           <h3 className="section-title">

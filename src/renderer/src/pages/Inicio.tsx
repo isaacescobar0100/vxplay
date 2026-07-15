@@ -160,6 +160,19 @@ export default function Inicio({
           <div className="stat-value">{cop(u?.utilidad)}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             Margen {u?.margen ?? 0}%
+            {(data?.gastos?.total ?? 0) > 0 && <> · neta {cop(data?.gananciaNeta ?? 0)}</>}
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Gastos de hoy</div>
+          <div
+            className="stat-value"
+            style={{ color: (data?.gastos?.total ?? 0) > 0 ? 'var(--red)' : 'var(--green)' }}
+          >
+            {cop(data?.gastos?.total ?? 0)}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {(data?.gastos?.n ?? 0) > 0 ? `${data?.gastos?.n} egreso(s)` : 'sin gastos'}
           </div>
         </div>
         <div className="stat-card">
