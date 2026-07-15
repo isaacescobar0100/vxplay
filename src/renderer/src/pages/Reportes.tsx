@@ -13,6 +13,7 @@ export default function Reportes(): JSX.Element {
   const [data, setData] = useState<any>(null)
   const [stockBajo, setStockBajo] = useState<any[]>([])
   const [exportando, setExportando] = useState(false)
+  const [fiadoOn, setFiadoOn] = useState(false)
 
   async function cargarRango(d1: string, d2: string): Promise<void> {
     setData(await window.api.reportesResumen(d1, d2))
@@ -48,6 +49,7 @@ export default function Reportes(): JSX.Element {
 
   useEffect(() => {
     cargar()
+    window.api.configGetAll().then((c: any) => setFiadoOn(c.fiado_habilitado === '1'))
   }, [])
 
   const t = data?.totales
@@ -163,13 +165,15 @@ export default function Reportes(): JSX.Element {
           </div>
           <div className="muted" style={{ fontSize: 12 }}>utilidad − gastos</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Fiado (por cobrar)</div>
-          <div className="stat-value" style={{ color: 'var(--amber)' }}>
-            {cop(data?.fiado?.total)}
+        {fiadoOn && (
+          <div className="stat-card">
+            <div className="stat-label">Fiado (por cobrar)</div>
+            <div className="stat-value" style={{ color: 'var(--amber)' }}>
+              {cop(data?.fiado?.total)}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>{data?.fiado?.n ?? 0} venta(s) a crédito</div>
           </div>
-          <div className="muted" style={{ fontSize: 12 }}>{data?.fiado?.n ?? 0} venta(s) a crédito</div>
-        </div>
+        )}
       </div>
 
       <div className="row" style={{ alignItems: 'flex-start' }}>

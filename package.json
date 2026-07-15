@@ -1,6 +1,6 @@
 {
   "name": "pos-ropa",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Sistema POS para tienda de ropa (Colombia) - ventas, inventario y facturacion electronica DIAN",
   "main": "./out/main/index.js",
   "author": "",
