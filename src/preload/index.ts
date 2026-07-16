@@ -125,8 +125,8 @@ const api = {
   gastosList: (sesionId?: number) => ipcRenderer.invoke('gastos:list', sesionId),
 
   // Reportes
-  reportesResumen: (desde: string, hasta: string) =>
-    ipcRenderer.invoke('reportes:resumen', desde, hasta),
+  reportesResumen: (desde: string, hasta: string, sesionId?: number) =>
+    ipcRenderer.invoke('reportes:resumen', desde, hasta, sesionId),
   reportesStockBajo: () => ipcRenderer.invoke('reportes:stockBajo'),
   reportesExportar: (desde: string, hasta: string, detalle: boolean) =>
     ipcRenderer.invoke('reportes:exportar', desde, hasta, detalle)

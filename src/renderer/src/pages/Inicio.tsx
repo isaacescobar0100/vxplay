@@ -32,18 +32,37 @@ export default function Inicio({
   const [stockBajo, setStockBajo] = useState<any[]>([])
   const [fiadoOn, setFiadoOn] = useState(false)
 
+  const cerosResumen = {
+    totales: { num_ventas: 0, total_vendido: 0, total_iva: 0 },
+    devoluciones: { total: 0, n: 0 },
+    utilidad: { utilidad: 0, margen: 0, costo: 0, ingreso_base: 0 },
+    gastos: { total: 0, n: 0 },
+    fiado: { total: 0, n: 0 },
+    cobrado: 0,
+    neto: 0
+  }
+
   useEffect(() => {
     const hoy = hoyISO()
     const dias = ultimos7()
-    window.api.reportesResumen(hoy, hoy).then(setData)
-    window.api.reportesResumen(dias[0].iso, hoy).then(setSemana)
-    window.api.cajaActual().then(setCaja)
+    ;(async () => {
+      const caja: any = await window.api.cajaActual()
+      setCaja(caja)
+      // Las tarjetas del resumen reflejan la CAJA/turno actual: si está cerrada, quedan en cero.
+      if (caja) setData(await window.api.reportesResumen(hoy, hoy, caja.id))
+      else setData(cerosResumen)
+    })()
+    window.api.reportesResumen(dias[0].iso, hoy).then(setSemana) // gráfico 7 días (histórico)
     window.api.reportesStockBajo().then((s: any) => setStockBajo(s))
     window.api.configGetAll().then((c: any) => setFiadoOn(c.fiado_habilitado === '1'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const t = data?.totales
   const u = data?.utilidad
+  // ¿La caja abierta se abrió un día anterior? (para recordar cerrarla y cuadrar)
+  const cajaOtroDia =
+    caja && typeof caja.fecha_apertura === 'string' && caja.fecha_apertura.slice(0, 10) < hoyISO()
 
   // Datos para el gráfico de ventas por día (rellena los 7 días, incluso los de $0)
   const porDiaMap: Record<string, number> = {}
@@ -66,7 +85,8 @@ export default function Inicio({
     <div>
       <div className="page-title">Hola, {usuario.nombre} 👋</div>
       <p className="muted" style={{ marginTop: -12, marginBottom: 20 }}>
-        Resumen de hoy · {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+        {caja ? 'Resumen de la caja actual' : 'Caja cerrada — el resumen empieza al abrir la caja'} ·{' '}
+        {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
       </p>
 
       {/* Estado de caja */}
@@ -96,6 +116,31 @@ export default function Inicio({
           Ir a Caja
         </button>
       </div>
+
+      {/* Recordatorio: caja abierta desde un día anterior */}
+      {cajaOtroDia && (
+        <div
+          className="card"
+          style={{
+            marginBottom: 20,
+            background: 'rgba(245,158,11,.12)',
+            border: '1px solid var(--amber)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12
+          }}
+        >
+          <div style={{ fontSize: 13 }}>
+            <b style={{ color: 'var(--amber)' }}>⚠️ Esta caja lleva abierta desde el {caja.fecha_apertura?.slice(0, 10)}.</b>{' '}
+            Ciérrala para cuadrar el turno y que el resumen empiece de cero. (Los valores de arriba suman todo
+            lo acumulado desde esa fecha.)
+          </div>
+          <button className="btn-primary" style={{ whiteSpace: 'nowrap' }} onClick={() => irA('caja')}>
+            Cerrar caja
+          </button>
+        </div>
+      )}
 
       {/* Métricas del día */}
       <div

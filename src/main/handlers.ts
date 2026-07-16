@@ -909,13 +909,22 @@ export function registerHandlers(): void {
   )
 
   // ---------- REPORTES ----------
-  ipcMain.handle('reportes:resumen', (_e, desde: string, hasta: string) => {
+  ipcMain.handle('reportes:resumen', (_e, desde: string, hasta: string, sesionId?: number) => {
+    // Si viene sesionId, se filtra por la CAJA/turno; si no, por rango de fechas.
+    const usarSesion = sesionId != null && !isNaN(Number(sesionId))
+    const sid = Number(sesionId)
+    const fV = usarSesion ? `sesion_id = ${sid}` : `date(fecha) BETWEEN date(?) AND date(?)`
+    const fVv = usarSesion ? `v.sesion_id = ${sid}` : `date(v.fecha) BETWEEN date(?) AND date(?)`
+    const fDd = usarSesion ? `d.sesion_id = ${sid}` : `date(d.fecha) BETWEEN date(?) AND date(?)`
+    const p: any[] = usarSesion ? [] : [desde, hasta]
+
     const totales = queryOne(
       `SELECT COUNT(*) as num_ventas, COALESCE(SUM(total),0) as total_vendido,
               COALESCE(SUM(iva),0) as total_iva
-       FROM ventas WHERE date(fecha) BETWEEN date(?) AND date(?) AND estado='completada'`,
-      [desde, hasta]
+       FROM ventas WHERE ${fV} AND estado='completada'`,
+      p
     )
+    // El gráfico de 7 días SIEMPRE es por fecha (histórico), no por caja.
     const porDia = query(
       `SELECT date(fecha) as dia, COUNT(*) as ventas, SUM(total) as total
        FROM ventas WHERE date(fecha) BETWEEN date(?) AND date(?) AND estado='completada'
@@ -925,15 +934,15 @@ export function registerHandlers(): void {
     const topProductos = query(
       `SELECT vi.producto_nombre, SUM(vi.cantidad) as unidades, SUM(vi.subtotal) as total
        FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
-       WHERE date(v.fecha) BETWEEN date(?) AND date(?)
+       WHERE ${fVv}
        GROUP BY vi.producto_nombre ORDER BY unidades DESC LIMIT 10`,
-      [desde, hasta]
+      p
     )
     const porMetodo = query(
       `SELECT metodo_pago, COUNT(*) as ventas, SUM(total) as total
-       FROM ventas WHERE date(fecha) BETWEEN date(?) AND date(?) AND estado='completada'
+       FROM ventas WHERE ${fV} AND estado='completada'
        GROUP BY metodo_pago`,
-      [desde, hasta]
+      p
     )
     // Utilidad estimada: ingreso sin IVA - costo de la mercancía vendida
     const utilidad = queryOne(
@@ -945,8 +954,8 @@ export function registerHandlers(): void {
        JOIN ventas v ON v.id = vi.venta_id
        LEFT JOIN variantes va ON va.id = vi.variante_id
        LEFT JOIN productos p ON p.id = va.producto_id
-       WHERE date(v.fecha) BETWEEN date(?) AND date(?) AND v.estado='completada'`,
-      [desde, hasta]
+       WHERE ${fVv} AND v.estado='completada'`,
+      p
     ) as any
     // Utilidad "perdida" por devoluciones (se resta: el producto vuelve al stock y ya no deja ganancia)
     const utilDev = queryOne(
@@ -957,8 +966,8 @@ export function registerHandlers(): void {
        JOIN devoluciones d ON d.id = di.devolucion_id
        LEFT JOIN variantes va ON va.id = di.variante_id
        LEFT JOIN productos p ON p.id = va.producto_id
-       WHERE date(d.fecha) BETWEEN date(?) AND date(?)`,
-      [desde, hasta]
+       WHERE ${fDd}`,
+      p
     ) as any
     if (utilidad) {
       // Base y costo netos = ventas − devoluciones
@@ -971,9 +980,8 @@ export function registerHandlers(): void {
     }
     const devoluciones =
       queryOne<{ total: number; n: number }>(
-        `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n
-         FROM devoluciones WHERE date(fecha) BETWEEN date(?) AND date(?)`,
-        [desde, hasta]
+        `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n FROM devoluciones WHERE ${fV}`,
+        p
       ) ?? { total: 0, n: 0 }
     const neto = Number((totales as any)?.total_vendido ?? 0) - devoluciones.total
 
@@ -981,17 +989,16 @@ export function registerHandlers(): void {
     const fiado =
       queryOne<{ total: number; n: number }>(
         `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n
-         FROM ventas WHERE date(fecha) BETWEEN date(?) AND date(?) AND estado='completada' AND metodo_pago='fiado'`,
-        [desde, hasta]
+         FROM ventas WHERE ${fV} AND estado='completada' AND metodo_pago='fiado'`,
+        p
       ) ?? { total: 0, n: 0 }
     const cobrado = Number((totales as any)?.total_vendido ?? 0) - fiado.total
 
     // Gastos / egresos del periodo
     const gastos =
       queryOne<{ total: number; n: number }>(
-        `SELECT COALESCE(SUM(monto),0) as total, COUNT(*) as n
-         FROM gastos WHERE date(fecha) BETWEEN date(?) AND date(?)`,
-        [desde, hasta]
+        `SELECT COALESCE(SUM(monto),0) as total, COUNT(*) as n FROM gastos WHERE ${fV}`,
+        p
       ) ?? { total: 0, n: 0 }
     // Ganancia neta = utilidad de mercancía − gastos operativos
     const gananciaNeta = Math.round(((utilidad as any)?.utilidad ?? 0) - gastos.total)

@@ -36,6 +36,8 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
   const [pickVariante, setPickVariante] = useState<Producto | null>(null)
   const [checkout, setCheckout] = useState(false)
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null)
+  const [dianOn, setDianOn] = useState(false)
+  const [mostrarPrecios, setMostrarPrecios] = useState(false)
   const codigoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -47,6 +49,8 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
     setProductos(p as Producto[])
     const s = await window.api.cajaActual()
     setCajaAbierta(!!s)
+    const cfg: any = await window.api.configGetAll()
+    setDianOn(cfg.dian_habilitado === '1')
   }
 
   const filtrados = productos.filter((p) =>
@@ -110,6 +114,11 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
         })
         .filter((i) => i.cantidad > 0)
     )
+  }
+
+  // Precio editable por línea (a veces negocian el precio, no es fijo).
+  function cambiarPrecio(key: string, precio: number): void {
+    setCart((prev) => prev.map((i) => (i.key === key ? { ...i, precio_unitario: Math.max(0, precio) } : i)))
   }
 
   async function procesarCodigo(codigo: string): Promise<void> {
@@ -224,6 +233,15 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
       <div className="pos-cart">
         <div className="cart-header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="cart" size={18} /> Venta actual ({cart.length})
+          <div style={{ flex: 1 }} />
+          <button
+            className="btn-sm"
+            onClick={() => setMostrarPrecios((v) => !v)}
+            title="Mostrar u ocultar el TOTAL grande (para que el cliente no lo vea antes de tiempo)"
+            style={{ fontSize: 11 }}
+          >
+            {mostrarPrecios ? 'Ocultar total' : 'Mostrar total'}
+          </button>
         </div>
         <div className="cart-items">
           {cart.length === 0 ? (
@@ -235,9 +253,29 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
               <div key={i.key} className="cart-item">
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{i.producto_nombre}</div>
-                  <div className="muted" style={{ fontSize: 11 }}>
-                    {[i.talla && 'T:' + i.talla, i.color].filter(Boolean).join(' · ')} ·{' '}
-                    {cop(i.precio_unitario)}
+                  <div
+                    className="muted"
+                    style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}
+                  >
+                    {[i.talla && 'T:' + i.talla, i.color].filter(Boolean).join(' · ')}
+                    <span title="Precio editable: puedes cambiarlo si negocian otro valor" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      $
+                      <input
+                        type="number"
+                        value={i.precio_unitario || ''}
+                        onChange={(e) => cambiarPrecio(i.key, Number(e.target.value))}
+                        onFocus={(e) => e.target.select()}
+                        style={{
+                          width: 74,
+                          padding: '2px 6px',
+                          fontSize: 12,
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          background: 'var(--panel-2)',
+                          color: 'var(--text)'
+                        }}
+                      />
+                    </span>
                   </div>
                 </div>
                 <button className="qty-btn" onClick={() => cambiarCantidad(i.key, -1)}>
@@ -255,17 +293,21 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
           )}
         </div>
         <div className="cart-foot">
-          <div className="total-line muted">
-            <span>Subtotal</span>
-            <span>{cop(subtotal)}</span>
-          </div>
-          <div className="total-line muted">
-            <span>IVA</span>
-            <span>{cop(iva)}</span>
-          </div>
+          {dianOn && (
+            <>
+              <div className="total-line muted">
+                <span>Subtotal</span>
+                <span>{cop(subtotal)}</span>
+              </div>
+              <div className="total-line muted">
+                <span>IVA</span>
+                <span>{cop(iva)}</span>
+              </div>
+            </>
+          )}
           <div className="total-line grand">
             <span>TOTAL</span>
-            <span>{cop(total)}</span>
+            <span>{mostrarPrecios ? cop(total) : '••••••'}</span>
           </div>
           {cajaAbierta === false && (
             <div
@@ -286,7 +328,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
               onClick={() => setCheckout(true)}
               disabled={cart.length === 0 || cajaAbierta === false}
             >
-              Cobrar {cop(total)}
+              Cobrar {mostrarPrecios ? cop(total) : '••••••'}
             </button>
           </div>
         </div>
