@@ -215,12 +215,23 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
           <div className="prod-grid">
             {filtrados.map((p) => {
               const stockTotal = p.variantes.reduce((s, v) => s + v.stock, 0)
+              const nivel = stockTotal <= 0 ? 'out' : stockTotal <= 5 ? 'low' : 'ok'
               return (
-                <button key={p.id} className="prod-card" onClick={() => clickProducto(p)}>
-                  <div className="prod-name">{p.nombre}</div>
+                <button
+                  key={p.id}
+                  className={'prod-card' + (nivel === 'out' ? ' agotado' : '')}
+                  onClick={() => clickProducto(p)}
+                >
+                  <div className="prod-top">
+                    <span className="prod-name">{p.nombre}</span>
+                    <span className="prod-add">+</span>
+                  </div>
                   <div className="prod-price">{cop(p.precio_venta)}</div>
-                  <div className="muted" style={{ fontSize: 11 }}>
-                    Stock: {stockTotal} · {p.variantes.length} var.
+                  <div className="prod-meta">
+                    <span className={'chip' + (nivel === 'out' ? ' out' : nivel === 'low' ? ' low' : '')}>
+                      {stockTotal <= 0 ? 'Agotado' : stockTotal + ' en stock'}
+                    </span>
+                    {p.variantes.length > 1 && <span className="chip">{p.variantes.length} var.</span>}
                   </div>
                 </button>
               )

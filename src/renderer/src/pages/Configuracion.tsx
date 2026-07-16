@@ -12,6 +12,9 @@ export default function Configuracion(): JSX.Element {
   const [dianPrueba, setDianPrueba] = useState<{ ok: boolean; simulacion?: boolean; mensaje: string } | null>(null)
   const [dianProbando, setDianProbando] = useState(false)
   const [reiniciar, setReiniciar] = useState(false)
+  const [portalClave, setPortalClave] = useState('')
+  const [portalMsg, setPortalMsg] = useState<{ ok: boolean; texto: string } | null>(null)
+  const [portalGuardando, setPortalGuardando] = useState(false)
 
   async function probarDian(): Promise<void> {
     // guardamos primero para que la prueba use los valores actuales
@@ -67,6 +70,27 @@ export default function Configuracion(): JSX.Element {
       )
     } else {
       alert('No se pudo publicar la carta: ' + (r.error ?? ''))
+    }
+  }
+
+  async function guardarPortalClave(desactivar = false): Promise<void> {
+    const clave = desactivar ? '' : portalClave.trim()
+    if (!desactivar && clave.length < 4) {
+      setPortalMsg({ ok: false, texto: 'La clave debe tener al menos 4 caracteres.' })
+      return
+    }
+    setPortalGuardando(true)
+    const r: any = await window.api.portalGuardarClave(clave)
+    setPortalGuardando(false)
+    if (r.ok) {
+      setCfg((c) => ({ ...c, portal_clave_set: clave ? '1' : '0' }))
+      setPortalClave('')
+      setPortalMsg({
+        ok: true,
+        texto: clave ? 'Clave guardada. El dueño ya puede entrar al portal. ✔' : 'Portal desactivado.'
+      })
+    } else {
+      setPortalMsg({ ok: false, texto: r.error ?? 'No se pudo guardar.' })
     }
   }
 
@@ -292,6 +316,78 @@ export default function Configuracion(): JSX.Element {
             <Icon name="check" size={15} /> {cartaCargando ? 'Publicando...' : 'Publicar carta ahora'}
           </button>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 className="section-title" style={{ marginBottom: 6 }}>
+          <Icon name="chart" size={18} /> Portal del Dueño (ver desde el celular)
+        </h3>
+        <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+          Deja que el dueño vea las ventas del día, la utilidad, la caja y el stock bajo desde su
+          <b> celular o computador</b>, sin instalar nada y <b>sin poder modificar</b>. Define una clave; el
+          dueño entra en la página con la <b>licencia</b> de la tienda y esa clave.
+        </p>
+
+        <div
+          style={{
+            background: 'var(--panel-2)',
+            borderRadius: 8,
+            padding: '10px 14px',
+            fontSize: 13,
+            marginBottom: 14,
+            lineHeight: 1.7
+          }}
+        >
+          <div>
+            Página del dueño:{' '}
+            <b style={{ color: 'var(--primary)' }}>https://vxplay.vercel.app/panel.html</b>
+          </div>
+          <div>
+            Licencia de esta tienda: <b>{cfg.licencia_codigo ?? '—'}</b>
+          </div>
+          <div>
+            Estado:{' '}
+            <b style={{ color: cfg.portal_clave_set === '1' ? 'var(--green)' : 'var(--amber)' }}>
+              {cfg.portal_clave_set === '1' ? 'Activado (clave configurada)' : 'Sin activar'}
+            </b>
+          </div>
+        </div>
+
+        <div className="grid-2" style={{ alignItems: 'end' }}>
+          <div className="field">
+            <label>{cfg.portal_clave_set === '1' ? 'Cambiar clave del dueño' : 'Clave del dueño'}</label>
+            <input
+              type="password"
+              value={portalClave}
+              onChange={(e) => setPortalClave(e.target.value)}
+              placeholder="Mínimo 4 caracteres"
+            />
+          </div>
+          <div className="field">
+            <button
+              className="btn-primary btn-icon"
+              onClick={() => guardarPortalClave(false)}
+              disabled={portalGuardando}
+              style={{ width: '100%' }}
+            >
+              <Icon name="check" size={15} /> {portalGuardando ? 'Guardando...' : 'Guardar clave'}
+            </button>
+          </div>
+        </div>
+        <div className="row" style={{ marginTop: 6, alignItems: 'center', gap: 12 }}>
+          {cfg.portal_clave_set === '1' && (
+            <button className="btn-sm btn-danger" onClick={() => guardarPortalClave(true)} disabled={portalGuardando}>
+              Desactivar portal
+            </button>
+          )}
+          {portalMsg && (
+            <span style={{ fontSize: 13, color: portalMsg.ok ? 'var(--green)' : 'var(--red)' }}>{portalMsg.texto}</span>
+          )}
+        </div>
+        <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+          La clave se guarda <b>encriptada</b> en la nube (no se ve en texto). La página se actualiza sola con las
+          ventas del día. Este apartado <b>no</b> necesita el botón Guardar de abajo.
+        </p>
       </div>
 
       <div className="card" style={{ marginBottom: 20 }}>

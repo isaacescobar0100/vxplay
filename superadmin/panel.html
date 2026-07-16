@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1117" />
+    <title>Portal del Dueño · VxPlay</title>
+    <style>
+      :root {
+        --bg: #f5f6f8;
+        --surface: #ffffff;
+        --surface-2: #f0f2f5;
+        --border: #e5e8ee;
+        --text: #171a21;
+        --muted: #6b7280;
+        --primary: #4f46e5;
+        --primary-soft: rgba(79, 70, 229, 0.1);
+        --green: #16a34a;
+        --red: #dc2626;
+        --amber: #d97706;
+        --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --surface: #161b22;
+          --surface-2: #1c2230;
+          --border: #262d3a;
+          --text: #e6eaf2;
+          --muted: #8b95a7;
+          --primary: #6366f1;
+          --primary-soft: rgba(99, 102, 241, 0.16);
+          --green: #22c55e;
+          --red: #ef4444;
+          --amber: #f59e0b;
+          --shadow: none;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        letter-spacing: -0.01em;
+      }
+      button { font-family: inherit; cursor: pointer; }
+      .muted { color: var(--muted); }
+      .small { font-size: 12px; }
+
+      /* ---------- LOGIN ---------- */
+      .login-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 20px; }
+      .login {
+        width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 18px; padding: 32px 28px; box-shadow: var(--shadow);
+      }
+      .login .brand { justify-content: center; margin-bottom: 22px; }
+      .login h1 { font-size: 19px; margin: 0 0 4px; text-align: center; }
+      .login .sub { text-align: center; font-size: 13px; margin: 0 0 22px; }
+      .field { margin-bottom: 15px; }
+      .field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 7px; }
+      input {
+        width: 100%; font-size: 15px; font-family: inherit; background: var(--surface-2); color: var(--text);
+        border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; outline: none; transition: border-color .15s;
+      }
+      input:focus { border-color: var(--primary); }
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        font-size: 14px; font-weight: 650; border: 1px solid transparent; border-radius: 11px; padding: 11px 16px;
+        background: var(--primary); color: #fff; transition: filter .15s, background .15s;
+      }
+      .btn:hover { filter: brightness(1.06); }
+      .btn:disabled { opacity: 0.6; cursor: default; }
+      .btn.block { width: 100%; }
+      .btn.ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
+      .btn.ghost:hover { background: var(--surface-2); filter: none; }
+      .btn.sm { padding: 8px 12px; font-size: 13px; }
+      .err { color: var(--red); font-size: 13px; min-height: 18px; margin: 12px 0 0; text-align: center; }
+
+      .brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 800; font-size: 16px; letter-spacing: -0.02em; }
+      .brand .dot { width: 11px; height: 11px; border-radius: 4px; background: var(--primary); }
+
+      /* ---------- APP SHELL ---------- */
+      .app { display: flex; min-height: 100dvh; }
+      .side {
+        width: 232px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
+        display: flex; flex-direction: column; padding: 20px 14px; position: sticky; top: 0; height: 100dvh;
+      }
+      .side .brand { padding: 4px 8px 22px; }
+      nav { display: flex; flex-direction: column; gap: 3px; }
+      .nav {
+        display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 10px;
+        font-size: 14px; font-weight: 550; color: var(--muted); cursor: pointer; user-select: none; transition: background .12s, color .12s;
+      }
+      .nav:hover { background: var(--surface-2); color: var(--text); }
+      .nav.active { background: var(--primary-soft); color: var(--primary); font-weight: 650; }
+      .nav .ico { width: 18px; text-align: center; font-size: 15px; }
+      .side-foot { margin-top: auto; padding: 12px 8px 4px; border-top: 1px solid var(--border); }
+      .side-foot .store { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+
+      .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .topbar {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 18px 26px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
+        background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); z-index: 5;
+      }
+      .sec-title { font-size: 19px; font-weight: 750; }
+      .ro-pill {
+        display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted);
+        background: var(--surface); border: 1px solid var(--border); padding: 6px 12px; border-radius: 20px; white-space: nowrap;
+      }
+      .content { padding: 22px 26px 60px; }
+
+      /* ---------- CARDS / KPIs ---------- */
+      .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 14px; }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 15px; box-shadow: var(--shadow); }
+      .kpi { padding: 17px 18px; }
+      .kpi .lbl { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+      .kpi .val { font-size: 25px; font-weight: 780; margin-top: 8px; }
+      .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+      .val.green { color: var(--green); }
+      .val.red { color: var(--red); }
+      .val.amber { color: var(--amber); }
+
+      .block { margin-top: 22px; }
+      .block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+      .block-head h2 { font-size: 14px; font-weight: 700; margin: 0; }
+      .pad { padding: 18px; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+      th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+      thead th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+      tbody tr:last-child td { border-bottom: none; }
+      td.r, th.r { text-align: right; }
+      .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .name-cell { white-space: normal; min-width: 160px; }
+
+      .badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 20px; font-size: 12px; font-weight: 650; }
+      .badge.on { background: rgba(22, 163, 74, 0.13); color: var(--green); }
+      .badge.off { background: rgba(217, 119, 6, 0.14); color: var(--amber); }
+      .dot-live { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+      /* chart */
+      .chart { display: flex; align-items: flex-end; gap: 7px; height: 150px; padding: 10px 2px 0; overflow-x: auto; }
+      .bar-col { display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 24px; flex: 1; }
+      .bar { width: 100%; max-width: 30px; background: var(--primary); border-radius: 6px 6px 0 0; min-height: 3px; }
+      .bar-lbl { font-size: 10px; color: var(--muted); white-space: nowrap; }
+
+      .mini-bar-track { height: 7px; background: var(--surface-2); border-radius: 5px; overflow: hidden; margin-top: 6px; }
+      .mini-bar-fill { height: 100%; background: var(--primary); border-radius: 5px; }
+
+      .empty { color: var(--muted); font-size: 13.5px; padding: 22px; text-align: center; }
+      .search { max-width: 260px; }
+
+      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+      /* ---------- RESPONSIVE ---------- */
+      @media (max-width: 860px) {
+        .app { flex-direction: column; }
+        .side {
+          width: 100%; height: auto; position: sticky; top: 0; z-index: 10; flex-direction: row; align-items: center;
+          padding: 10px 12px; gap: 10px; overflow-x: auto;
+        }
+        .side .brand { padding: 0 6px 0 4px; flex-shrink: 0; }
+        nav { flex-direction: row; gap: 4px; flex: 1; }
+        .nav { padding: 8px 12px; white-space: nowrap; }
+        .nav .ico { display: none; }
+        .side-foot { display: none; }
+        .topbar { padding: 14px 16px; }
+        .content { padding: 16px 14px 70px; }
+        .sec-title { font-size: 17px; }
+        .grid-2 { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 420px) {
+        .kpis { grid-template-columns: 1fr 1fr; }
+        .kpi .val { font-size: 21px; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- LOGIN -->
+    <div id="login" class="login-wrap">
+      <div class="login">
+        <div class="brand"><span class="dot"></span> VxPlay</div>
+        <h1>Portal del Dueño</h1>
+        <p class="sub muted">Monitorea tu tienda en tiempo casi real. Solo lectura.</p>
+        <div class="field">
+          <label>Licencia de la tienda</label>
+          <input id="lic" autocomplete="off" autocapitalize="characters" placeholder="VX-XXXX-XXXX-XXXX" />
+        </div>
+        <div class="field">
+          <label>Clave del dueño</label>
+          <input id="clave" type="password" placeholder="La clave definida en el POS" />
+        </div>
+        <button id="btnEntrar" class="btn block">Entrar</button>
+        <p id="loginErr" class="err"></p>
+      </div>
+    </div>
+
+    <!-- APP -->
+    <div id="app" class="app" style="display: none">
+      <aside class="side">
+        <div class="brand"><span class="dot"></span> VxPlay</div>
+        <nav id="nav">
+          <div class="nav active" data-sec="resumen"><span class="ico">◧</span> Resumen</div>
+          <div class="nav" data-sec="ventas"><span class="ico">◱</span> Ventas</div>
+          <div class="nav" data-sec="caja"><span class="ico">▦</span> Caja</div>
+          <div class="nav" data-sec="inventario"><span class="ico">▤</span> Inventario</div>
+          <div class="nav" data-sec="reportes"><span class="ico">◰</span> Reportes</div>
+        </nav>
+        <div class="side-foot">
+          <div class="store" id="sideStore">—</div>
+          <div class="muted small" id="sideUpd" style="margin-bottom: 10px"></div>
+          <button class="btn ghost sm block" id="btnSalir">Salir</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <div class="sec-title" id="secTitle">Resumen</div>
+            <div class="muted small" id="topSub"></div>
+          </div>
+          <span class="ro-pill"><span class="dot-live"></span> Solo lectura</span>
+        </header>
+        <div class="content" id="content"></div>
+      </main>
+    </div>
+
+    <script>
+      const SUPABASE_URL = 'https://fivmoaytipcqdgchfbdf.supabase.co'
+      const SUPABASE_ANON =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpdm1vYXl0aXBjcWRnY2hmYmRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3ODQ0NjgsImV4cCI6MjA5OTM2MDQ2OH0.53tMbosXO6_mRZML6ypU6oJ-YS_cESb68TxkPdeaSKc'
+
+      const $ = (id) => document.getElementById(id)
+      const cop = (n) =>
+        new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(
+          Math.round(Number(n) || 0)
+        )
+      const num = (n) => new Intl.NumberFormat('es-CO').format(Math.round(Number(n) || 0))
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+      let DATA = null
+      let SEC = 'resumen'
+      let invFiltro = ''
+      let timer = null
+      const TITULOS = { resumen: 'Resumen', ventas: 'Ventas', caja: 'Caja', inventario: 'Inventario', reportes: 'Reportes' }
+
+      async function pedirDatos(lic, clave) {
+        const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/obtener_resumen_dueno`, {
+          method: 'POST',
+          headers: {
+            apikey: SUPABASE_ANON,
+            Authorization: 'Bearer ' + SUPABASE_ANON,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ p_licencia: lic, p_clave: clave })
+        })
+        if (!resp.ok) throw new Error('No se pudo conectar. Revisa tu internet.')
+        return await resp.json()
+      }
+
+      async function entrar() {
+        const lic = $('lic').value.trim().toUpperCase()
+        const clave = $('clave').value
+        $('loginErr').textContent = ''
+        if (!lic || !clave) { $('loginErr').textContent = 'Escribe la licencia y la clave.'; return }
+        $('btnEntrar').disabled = true
+        $('btnEntrar').textContent = 'Entrando...'
+        try {
+          const r = await pedirDatos(lic, clave)
+          if (!r || !r.ok) { $('loginErr').textContent = (r && r.error) || 'No se pudo entrar.'; return }
+          sessionStorage.setItem('vx_lic', lic)
+          sessionStorage.setItem('vx_clave', clave)
+          abrirApp(r)
+        } catch (e) {
+          $('loginErr').textContent = e.message
+        } finally {
+          $('btnEntrar').disabled = false
+          $('btnEntrar').textContent = 'Entrar'
+        }
+      }
+
+      function tiempoDesde(iso) {
+        if (!iso) return ''
+        const d = new Date(iso)
+        const seg = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000))
+        if (seg < 60) return 'hace un momento'
+        if (seg < 3600) return 'hace ' + Math.floor(seg / 60) + ' min'
+        if (seg < 86400) return 'hace ' + Math.floor(seg / 3600) + ' h'
+        return 'el ' + d.toLocaleDateString('es-CO')
+      }
+      function fmtFechaHora(f) {
+        if (!f) return '—'
+        const d = new Date(String(f).replace(' ', 'T'))
+        if (isNaN(d)) return f
+        return d.toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      }
+
+      function abrirApp(r) {
+        DATA = r
+        $('login').style.display = 'none'
+        $('app').style.display = 'flex'
+        render()
+        if (timer) clearInterval(timer)
+        timer = setInterval(refrescar, 30000)
+      }
+
+      async function refrescar() {
+        const lic = sessionStorage.getItem('vx_lic')
+        const clave = sessionStorage.getItem('vx_clave')
+        if (!lic || !clave) return
+        try {
+          const r = await pedirDatos(lic, clave)
+          if (r && r.ok) { DATA = r; render() }
+        } catch (e) { /* reintenta en el próximo ciclo */ }
+      }
+
+      function salir() {
+        sessionStorage.removeItem('vx_lic')
+        sessionStorage.removeItem('vx_clave')
+        if (timer) clearInterval(timer)
+        DATA = null
+        $('app').style.display = 'none'
+        $('login').style.display = 'grid'
+        $('clave').value = ''
+      }
+
+      // ---------- helpers de render ----------
+      function kpi(lbl, val, cls, sub) {
+        return `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val ${cls || ''}">${val}</div>${
+          sub ? `<div class="sub">${sub}</div>` : ''
+        }</div>`
+      }
+      function tabla(headers, filas) {
+        if (!filas.length) return `<div class="empty">Sin datos por ahora.</div>`
+        const head = headers.map((h) => `<th class="${h.r ? 'r' : ''}">${esc(h.t)}</th>`).join('')
+        return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${filas.join('')}</tbody></table></div>`
+      }
+      function grafico(datos) {
+        const arr = (datos || []).slice(-14)
+        const max = Math.max(1, ...arr.map((d) => Number(d.total) || 0))
+        if (!arr.length) return `<div class="empty">Aún no hay ventas registradas.</div>`
+        return `<div class="chart">${arr
+          .map((d) => {
+            const alto = Math.round(((Number(d.total) || 0) / max) * 124)
+            const f = String(d.fecha || '')
+            return `<div class="bar-col" title="${esc(f)}: ${cop(d.total)}"><div class="bar" style="height:${alto}px"></div><div class="bar-lbl">${f.slice(
+              8,
+              10
+            )}/${f.slice(5, 7)}</div></div>`
+          })
+          .join('')}</div>`
+      }
+
+      // tarjeta comparativa: actual vs periodo anterior con % y flecha
+      function comparCard(titulo, actual, previo, subAct, subPrev) {
+        actual = Number(actual) || 0
+        previo = Number(previo) || 0
+        let pct, color, flecha
+        if (previo === 0) {
+          pct = actual > 0 ? '+100%' : '0%'
+          color = actual > 0 ? 'var(--green)' : 'var(--muted)'
+          flecha = actual > 0 ? '▲' : '—'
+        } else {
+          const d = ((actual - previo) / Math.abs(previo)) * 100
+          pct = (d >= 0 ? '+' : '') + d.toFixed(0) + '%'
+          color = d > 0 ? 'var(--green)' : d < 0 ? 'var(--red)' : 'var(--muted)'
+          flecha = d > 0 ? '▲' : d < 0 ? '▼' : '—'
+        }
+        return `<div class="card kpi">
+          <div class="lbl">${titulo}</div>
+          <div style="display:flex;align-items:baseline;gap:10px;margin-top:8px;flex-wrap:wrap">
+            <span class="val" style="font-size:22px">${cop(actual)}</span>
+            <span style="color:${color};font-weight:700;font-size:14px">${flecha} ${pct}</span>
+          </div>
+          <div class="sub">${subAct}: ${cop(actual)} · ${subPrev}: ${cop(previo)}</div>
+        </div>`
+      }
+
+      // ---------- exportar CSV ----------
+      function descargarCSV(nombre, headers, rows) {
+        const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'
+        const csv = [headers.map(q).join(','), ...rows.map((r) => r.map(q).join(','))].join('\r\n')
+        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = nombre
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(a.href)
+      }
+      function expInventario() {
+        const lista = (DATA.snapshot && DATA.snapshot.inventario && DATA.snapshot.inventario.lista) || []
+        descargarCSV(
+          'inventario.csv',
+          ['Producto', 'SKU', 'Stock', 'Precio compra', 'Precio venta', 'Valor a venta'],
+          lista.map((p) => [p.nombre, p.sku, p.stock, p.compra, p.venta, (p.stock || 0) * (p.venta || 0)])
+        )
+      }
+      function expVentas() {
+        const v = (DATA.snapshot && DATA.snapshot.ventas_recientes) || []
+        descargarCSV(
+          'ventas-recientes.csv',
+          ['N° venta', 'Fecha', 'Método', 'Total'],
+          v.map((x) => [x.numero, x.fecha, x.metodo, x.total])
+        )
+      }
+      function expTop() {
+        const t = (DATA.snapshot && DATA.snapshot.top_mes) || []
+        descargarCSV(
+          'top-productos-mes.csv',
+          ['Producto', 'Unidades', 'Total'],
+          t.map((x) => [x.nombre, x.cantidad, x.total])
+        )
+      }
+      function expCierres() {
+        const c = (DATA.snapshot && DATA.snapshot.cierres_caja) || []
+        descargarCSV(
+          'cierres-caja.csv',
+          ['Cierre', 'Cajero', 'Base', 'Esperado', 'Contado', 'Diferencia'],
+          c.map((x) => [x.fecha_cierre, x.cajero, x.monto_inicial, x.monto_esperado, x.monto_contado, x.diferencia])
+        )
+      }
+      function expGastos() {
+        const g = (DATA.snapshot && DATA.snapshot.gastos_lista) || []
+        descargarCSV(
+          'gastos-mes.csv',
+          ['Fecha', 'Concepto', 'Categoría', 'Método', 'Monto'],
+          g.map((x) => [x.fecha, x.concepto, x.categoria, x.metodo, x.monto])
+        )
+      }
+      window.expInventario = expInventario
+      window.expVentas = expVentas
+      window.expTop = expTop
+      window.expCierres = expCierres
+      window.expGastos = expGastos
+
+      // ---------- secciones ----------
+      function secResumen(s) {
+        const h = s.hoy || {}, mes = s.mes || {}, caja = s.caja || {}
+        const kpis = [
+          kpi('Ventas de hoy', cop(h.neto), 'green', (h.ventas_num || 0) + ' venta(s)'),
+          kpi('Utilidad hoy', cop(h.utilidad), '', 'Ganancia neta ' + cop(h.ganancia_neta)),
+          kpi('Gastos hoy', cop(h.gastos), h.gastos > 0 ? 'amber' : ''),
+          kpi('Devoluciones hoy', cop(h.devoluciones), h.devoluciones > 0 ? 'red' : '', (h.ndev || 0) + ' hoy'),
+          kpi('Ventas del mes', cop(mes.total), '', (mes.ventas_num || 0) + ' venta(s)')
+        ].join('')
+        const cajaCard = `<div class="card pad">${
+          caja.abierta
+            ? `<span class="badge on"><span class="dot-live"></span> Caja abierta</span>
+               <span class="muted small" style="margin-left:10px">Base ${cop(caja.base)} · desde ${fmtFechaHora(caja.desde)}</span>`
+            : `<span class="badge off">Caja cerrada</span> <span class="muted small" style="margin-left:10px">No hay turno abierto.</span>`
+        }</div>`
+        const top = s.top || []
+        const c = s.comparativo || {}
+        const comparativo = `<div class="kpis" style="margin-top:14px">
+          ${comparCard('Hoy vs ayer', h.neto, c.ayer_neto, 'Hoy', 'Ayer')}
+          ${comparCard('Este mes vs mes pasado', mes.total, c.mes_pasado_total, 'Este mes', 'Mes pasado')}
+        </div>`
+        return `<div class="kpis">${kpis}</div>
+          ${comparativo}
+          <div class="block"><div class="block-head"><h2>Estado de la caja</h2></div>${cajaCard}</div>
+          <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
+            DATA.datos
+          )}</div></div>
+          <div class="block"><div class="block-head"><h2>Más vendidos hoy</h2></div><div class="card">${tabla(
+            [{ t: 'Producto' }, { t: 'Cant.', r: true }, { t: 'Total', r: true }],
+            top.map((t) => `<tr><td class="name-cell">${esc(t.nombre)}</td><td class="r">${num(t.cantidad)}</td><td class="r">${cop(t.total)}</td></tr>`)
+          )}</div></div>`
+      }
+
+      function secVentas(s) {
+        const h = s.hoy || {}, mes = s.mes || {}
+        const rec = s.ventas_recientes || []
+        const met = s.metodos || []
+        const kpis = [
+          kpi('Ventas hoy', cop(h.neto), 'green', (h.ventas_num || 0) + ' venta(s)'),
+          kpi('Ventas del mes', cop(mes.total), '', (mes.ventas_num || 0) + ' venta(s)'),
+          kpi('Ticket promedio hoy', cop(h.ventas_num ? (h.ventas_bruto || 0) / h.ventas_num : 0), '')
+        ].join('')
+        const maxMet = Math.max(1, ...met.map((m) => Number(m.total) || 0))
+        const metCard = met.length
+          ? met
+              .map(
+                (m) =>
+                  `<div style="padding:12px 16px;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;font-size:13.5px"><span>${esc(
+                    m.metodo
+                  )} <span class="muted small">· ${num(m.num)}</span></span><b>${cop(m.total)}</b></div><div class="mini-bar-track"><div class="mini-bar-fill" style="width:${Math.round(
+                    ((Number(m.total) || 0) / maxMet) * 100
+                  )}%"></div></div></div>`
+              )
+              .join('')
+          : `<div class="empty">Sin ventas este mes.</div>`
+        return `<div class="kpis">${kpis}</div>
+          <div class="block"><div class="block-head"><h2>Ventas recientes</h2><button class="btn ghost sm" onclick="expVentas()">↓ Exportar CSV</button></div>
+            <div class="card">${tabla(
+              [{ t: 'N°' }, { t: 'Fecha' }, { t: 'Método' }, { t: 'Total', r: true }],
+              rec.map(
+                (v) =>
+                  `<tr><td>${esc(v.numero)}</td><td class="muted">${fmtFechaHora(v.fecha)}</td><td>${esc(
+                    v.metodo
+                  )}</td><td class="r">${cop(v.total)}</td></tr>`
+              )
+            )}</div></div>
+          <div class="block"><div class="block-head"><h2>Métodos de pago (mes)</h2></div><div class="card">${metCard}</div></div>`
+      }
+
+      function secCaja(s) {
+        const caja = s.caja || {}
+        const cierres = s.cierres_caja || []
+        const cajaCard = `<div class="card pad">${
+          caja.abierta
+            ? `<span class="badge on"><span class="dot-live"></span> Caja abierta</span>
+               <span class="muted small" style="margin-left:10px">Base ${cop(caja.base)} · desde ${fmtFechaHora(caja.desde)}</span>`
+            : `<span class="badge off">Caja cerrada</span> <span class="muted small" style="margin-left:10px">No hay turno abierto.</span>`
+        }</div>`
+        const descuadres = cierres.filter((c) => Number(c.diferencia) !== 0).length
+        const kpis = [
+          kpi('Cierres registrados', num(cierres.length), ''),
+          kpi('Con descuadre', num(descuadres), descuadres > 0 ? 'red' : 'green', descuadres > 0 ? 'Revisar' : 'Todo cuadra')
+        ].join('')
+        const filas = cierres.map((c) => {
+          const dif = Number(c.diferencia) || 0
+          const col = dif === 0 ? 'var(--green)' : dif < 0 ? 'var(--red)' : 'var(--amber)'
+          const txt = dif === 0 ? 'Cuadra' : (dif > 0 ? '+' : '') + cop(dif)
+          return `<tr><td>${fmtFechaHora(c.fecha_cierre)}</td><td class="muted">${esc(c.cajero || '—')}</td><td class="r muted">${cop(
+            c.monto_esperado
+          )}</td><td class="r">${cop(c.monto_contado)}</td><td class="r" style="color:${col};font-weight:650">${txt}</td></tr>`
+        })
+        return `<div class="kpis">${kpis}</div>
+          <div class="block"><div class="block-head"><h2>Estado actual</h2></div>${cajaCard}</div>
+          <div class="block"><div class="block-head"><h2>Cierres de caja (arqueos)</h2><button class="btn ghost sm" onclick="expCierres()">↓ Exportar CSV</button></div>
+            <div class="card">${tabla(
+              [{ t: 'Cierre' }, { t: 'Cajero' }, { t: 'Esperado', r: true }, { t: 'Contado', r: true }, { t: 'Diferencia', r: true }],
+              filas
+            )}</div>
+            <p class="muted small" style="margin-top:10px">La <b>diferencia</b> es lo contado menos lo esperado en efectivo. Rojo = faltó plata, ámbar = sobró.</p>
+          </div>`
+      }
+
+      function secInventario(s) {
+        const inv = s.inventario || {}
+        const lista = inv.lista || []
+        const f = invFiltro.trim().toLowerCase()
+        const filtrada = f ? lista.filter((p) => (p.nombre + ' ' + (p.sku || '')).toLowerCase().includes(f)) : lista
+        const kpis = [
+          kpi('Referencias', num(inv.items), ''),
+          kpi('Unidades en stock', num(inv.unidades), ''),
+          kpi('Valor a costo', cop(inv.valor_costo), ''),
+          kpi('Valor a venta', cop(inv.valor_venta), 'green')
+        ].join('')
+        const filas = filtrada.map(
+          (p) =>
+            `<tr><td class="name-cell">${esc(p.nombre)}</td><td class="muted">${esc(p.sku || '—')}</td><td class="r" style="color:${
+              p.stock <= 0 ? 'var(--red)' : p.stock <= 3 ? 'var(--amber)' : 'inherit'
+            };font-weight:600">${num(p.stock)}</td><td class="r muted">${cop(p.compra)}</td><td class="r">${cop(
+              p.venta
+            )}</td><td class="r">${cop((p.stock || 0) * (p.venta || 0))}</td></tr>`
+        )
+        return `<div class="kpis">${kpis}</div>
+          <div class="block"><div class="block-head">
+            <input class="search" id="invSearch" placeholder="Buscar producto o SKU..." value="${esc(invFiltro)}" oninput="onInvSearch(this.value)" />
+            <button class="btn ghost sm" onclick="expInventario()">↓ Exportar CSV</button>
+          </div>
+          <div class="card">${tabla(
+            [{ t: 'Producto' }, { t: 'SKU' }, { t: 'Stock', r: true }, { t: 'Compra', r: true }, { t: 'Venta', r: true }, { t: 'Valor', r: true }],
+            filas
+          )}</div>
+          <p class="muted small" style="margin-top:10px">${
+            lista.length >= 500 ? 'Mostrando las primeras 500 referencias.' : 'Total: ' + num(filtrada.length) + ' referencia(s).'
+          }</p></div>`
+      }
+
+      function secReportes(s) {
+        const mes = s.mes || {}
+        const kpis = [
+          kpi('Ventas del mes', cop(mes.total), 'green', (mes.ventas_num || 0) + ' venta(s)'),
+          kpi('Utilidad del mes', cop(mes.utilidad), ''),
+          kpi('Stock bajo', num((s.stock_bajo || []).length), (s.stock_bajo || []).length ? 'amber' : 'green')
+        ].join('')
+        const top = s.top_mes || []
+        const bajo = s.stock_bajo || []
+        const gastos = s.gastos_lista || []
+        const totalGastos = gastos.reduce((a, g) => a + (Number(g.monto) || 0), 0)
+        return `<div class="kpis">${kpis}</div>
+          <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
+            DATA.datos
+          )}</div></div>
+          <div class="block"><div class="block-head"><h2>Más vendidos del mes</h2><button class="btn ghost sm" onclick="expTop()">↓ Exportar CSV</button></div>
+            <div class="card">${tabla(
+              [{ t: 'Producto' }, { t: 'Unidades', r: true }, { t: 'Total', r: true }],
+              top.map((t) => `<tr><td class="name-cell">${esc(t.nombre)}</td><td class="r">${num(t.cantidad)}</td><td class="r">${cop(t.total)}</td></tr>`)
+            )}</div></div>
+          <div class="block"><div class="block-head"><h2>Gastos del mes${
+            totalGastos ? ` · ${cop(totalGastos)}` : ''
+          }</h2><button class="btn ghost sm" onclick="expGastos()">↓ Exportar CSV</button></div>
+            <div class="card">${tabla(
+              [{ t: 'Fecha' }, { t: 'Concepto' }, { t: 'Categoría' }, { t: 'Método' }, { t: 'Monto', r: true }],
+              gastos.map(
+                (g) =>
+                  `<tr><td class="muted">${fmtFechaHora(g.fecha)}</td><td class="name-cell">${esc(g.concepto)}</td><td class="muted">${esc(
+                    g.categoria || '—'
+                  )}</td><td>${esc(g.metodo)}</td><td class="r">${cop(g.monto)}</td></tr>`
+              )
+            )}</div></div>
+          <div class="block"><div class="block-head"><h2>Productos con stock bajo</h2></div>
+            <div class="card">${tabla(
+              [{ t: 'Producto' }, { t: 'Stock', r: true }, { t: 'Mínimo', r: true }],
+              bajo.map(
+                (p) =>
+                  `<tr><td class="name-cell">${esc(p.nombre)}</td><td class="r" style="color:${
+                    p.stock <= 0 ? 'var(--red)' : 'var(--amber)'
+                  };font-weight:600">${num(p.stock)}</td><td class="r muted">${num(p.minimo)}</td></tr>`
+              )
+            )}</div></div>`
+      }
+
+      function onInvSearch(v) {
+        invFiltro = v
+        render()
+        const el = $('invSearch')
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length) }
+      }
+      window.onInvSearch = onInvSearch
+
+      function render(keep) {
+        if (!DATA) return
+        const s = DATA.snapshot || {}
+        $('secTitle').textContent = TITULOS[SEC]
+        $('sideStore').textContent = DATA.nombre || 'Mi tienda'
+        const upd = 'Actualizado ' + tiempoDesde(DATA.actualizado || s.generado)
+        $('sideUpd').textContent = upd
+        $('topSub').textContent = (DATA.nombre || '') + ' · ' + upd
+        document.querySelectorAll('.nav').forEach((n) => n.classList.toggle('active', n.dataset.sec === SEC))
+        let html = ''
+        if (SEC === 'resumen') html = secResumen(s)
+        else if (SEC === 'ventas') html = secVentas(s)
+        else if (SEC === 'caja') html = secCaja(s)
+        else if (SEC === 'inventario') html = secInventario(s)
+        else if (SEC === 'reportes') html = secReportes(s)
+        if (!s || !s.hoy) html = `<div class="empty">Aún no hay datos. Abre el POS de la tienda para que suba la información.</div>` + html
+        $('content').innerHTML = html
+      }
+
+      // eventos
+      $('btnEntrar').addEventListener('click', entrar)
+      $('clave').addEventListener('keydown', (e) => e.key === 'Enter' && entrar())
+      $('btnSalir').addEventListener('click', salir)
+      $('nav').addEventListener('click', (e) => {
+        const item = e.target.closest('.nav')
+        if (!item) return
+        SEC = item.dataset.sec
+        if (SEC !== 'inventario') invFiltro = ''
+        render()
+      })
+
+      // auto-entrar si ya había sesión
+      ;(async () => {
+        const lic = sessionStorage.getItem('vx_lic')
+        const clave = sessionStorage.getItem('vx_clave')
+        if (lic && clave) {
+          try {
+            const r = await pedirDatos(lic, clave)
+            if (r && r.ok) abrirApp(r)
+          } catch (e) { /* mostrar login */ }
+        }
+      })()
+    </script>
+  </body>
+</html>

@@ -8,7 +8,14 @@ import { leerImportacion, guardarImportacion, generarPlantilla } from './importa
 import { hashPassword, verifyPassword } from './auth'
 import { crearBackupAutomatico, listarBackups, exportarDb, importarDb } from './backup'
 import { estadoLicencia, estadoLicenciaRapido, activarLicencia } from './licencia'
-import { subirRespaldo, bajarRespaldo, ultimoRespaldo, subirResumen } from './respaldoNube'
+import {
+  subirRespaldo,
+  bajarRespaldo,
+  ultimoRespaldo,
+  subirResumen,
+  programarResumen,
+  guardarClavePortal
+} from './respaldoNube'
 import type { SqlValue } from 'sql.js'
 
 /**
@@ -659,8 +666,13 @@ export function registerHandlers(): void {
       'INSERT INTO caja_sesiones (usuario_apertura_id, monto_inicial, estado) VALUES (?,?,?)',
       [usuarioId ?? null, montoInicial ?? 0, 'abierta']
     )
+    // Refresca el Portal del Dueño (caja recién abierta, totales del día en cero).
+    subirResumen().catch(() => {})
     return queryOne('SELECT * FROM caja_sesiones WHERE id = ?', [id])
   })
+
+  // Portal del Dueño: guardar/cambiar/quitar la clave de acceso (vacía = desactivar)
+  ipcMain.handle('portal:guardarClave', async (_e, clave: string) => guardarClavePortal(clave))
 
   // Resumen en vivo de la sesion (para mostrar antes de cerrar)
   ipcMain.handle('caja:resumen', (_e, sesionId?: number) => {
@@ -1166,6 +1178,8 @@ function registrarVenta(venta: any): any {
       }
     }
   })
+  // Actualiza el Portal del Dueño casi en vivo (agrupado, en segundo plano).
+  programarResumen()
   return obtenerVenta(ventaId)
 }
 
