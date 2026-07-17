@@ -554,7 +554,7 @@
           ${comparativo}
           <div class="block"><div class="block-head"><h2>Estado de la caja</h2></div>${cajaCard}</div>
           <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
-            DATA.datos
+            (DATA.snapshot && DATA.snapshot.ventas_dias) || []
           )}</div></div>
           <div class="block"><div class="block-head"><h2>Más vendidos hoy</h2></div><div class="card">${tabla(
             [{ t: 'Producto' }, { t: 'Cant.', r: true }, { t: 'Total', r: true }],
@@ -699,7 +699,7 @@
               )}</b>. El Excel trae cada producto vendido con su detalle.</div>
             </div></div>
           <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
-            DATA.datos
+            (DATA.snapshot && DATA.snapshot.ventas_dias) || []
           )}</div></div>
           <div class="block"><div class="block-head"><h2>Más vendidos del mes</h2><button class="btn ghost sm" onclick="expTop()">↓ Exportar CSV</button></div>
             <div class="card">${tabla(

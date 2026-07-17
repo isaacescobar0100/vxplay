@@ -158,6 +158,13 @@ function construirSnapshot(): Record<string, unknown> {
      FROM ventas WHERE estado = 'completada'
        AND strftime('%Y-%m', fecha) = strftime('%Y-%m','now','localtime')`
   )
+  // Ventas por día (30 días) para el gráfico del Panel. Va DENTRO del snapshot
+  // (que se reemplaza entero en cada subida) para que al reiniciar quede vacío.
+  const ventasDias = query<{ fecha: string; total: number }>(
+    `SELECT date(fecha) as fecha, COALESCE(SUM(total),0) as total
+     FROM ventas WHERE estado = 'completada' AND date(fecha) >= date('now','-30 days','localtime')
+     GROUP BY date(fecha) ORDER BY fecha`
+  )
   const top = query<{ nombre: string; cantidad: number; total: number }>(
     `SELECT vi.producto_nombre as nombre, SUM(vi.cantidad) as cantidad,
             SUM(vi.cantidad * vi.precio_unitario) as total
@@ -305,6 +312,7 @@ function construirSnapshot(): Record<string, unknown> {
     },
     ventas_recientes: ventasRec,
     ventas_detalle: ventasDet,
+    ventas_dias: ventasDias,
     comparativo: {
       ayer_neto: (vAyer?.bruto ?? 0) - (devAyer?.monto ?? 0),
       mes_pasado_total: mesPasado?.total ?? 0,
