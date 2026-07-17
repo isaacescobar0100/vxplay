@@ -196,6 +196,7 @@ export function registerHandlers(): void {
       /* ignore */
     }
     persist()
+    programarResumen() // refresca el Panel del Dueño (datos reiniciados)
     return { ok: true }
   })
 
@@ -327,6 +328,7 @@ export function registerHandlers(): void {
 
   ipcMain.handle('productos:delete', (_e, id: number) => {
     run('UPDATE productos SET activo = 0 WHERE id = ?', [id])
+    programarResumen() // refresca inventario del Panel del Dueño
     return true
   })
 

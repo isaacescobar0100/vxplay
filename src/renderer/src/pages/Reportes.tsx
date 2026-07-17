@@ -130,7 +130,9 @@ export default function Reportes(): JSX.Element {
             {cop(data?.neto)}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            {t?.num_ventas ?? 0} ventas{dianOn ? ` · IVA ${cop(t?.total_iva)}` : ''}
+            {t?.num_ventas ?? 0} ventas
+            {(data?.devoluciones?.total ?? 0) > 0 && ` · ${cop(t?.total_vendido)} − ${cop(data?.devoluciones?.total)} devol.`}
+            {dianOn ? ` · IVA ${cop(t?.total_iva)}` : ''}
           </div>
         </div>
         <div className="stat-card">

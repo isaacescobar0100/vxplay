@@ -223,6 +223,18 @@ function construirSnapshot(): Record<string, unknown> {
     `SELECT numero, fecha, total, metodo_pago as metodo FROM ventas
      WHERE estado = 'completada' ORDER BY id DESC LIMIT 300`
   )
+  // Detalle de ventas (una fila por producto) para exportar TODO desde el Panel
+  const ventasDet = query<{
+    numero: string; fecha: string; cliente: string; metodo: string; producto: string;
+    talla: string; color: string; cantidad: number; precio_unitario: number; subtotal: number; total_venta: number
+  }>(
+    `SELECT v.numero, v.fecha, COALESCE(c.nombre,'Consumidor final') as cliente, v.metodo_pago as metodo,
+            vi.producto_nombre as producto, COALESCE(vi.talla,'') as talla, COALESCE(vi.color,'') as color,
+            vi.cantidad, vi.precio_unitario, vi.subtotal, v.total as total_venta
+     FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
+     LEFT JOIN clientes c ON c.id = v.cliente_id
+     WHERE v.estado = 'completada' ORDER BY v.id DESC LIMIT 2000`
+  )
   // Comparativos: ayer y mes pasado
   const vAyer = queryOne<{ bruto: number }>(
     `SELECT COALESCE(SUM(total),0) as bruto FROM ventas
@@ -292,6 +304,7 @@ function construirSnapshot(): Record<string, unknown> {
       lista: invLista
     },
     ventas_recientes: ventasRec,
+    ventas_detalle: ventasDet,
     comparativo: {
       ayer_neto: (vAyer?.bruto ?? 0) - (devAyer?.monto ?? 0),
       mes_pasado_total: mesPasado?.total ?? 0,

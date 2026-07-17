@@ -253,6 +253,7 @@
       const PAGE = 15
       const pageState = { ventas: 0, caja: 0, inventario: 0, reportes: 0 }
       const fechaState = { ventas: '', caja: '', inventario: '', reportes: '' }
+      const rango = { desde: '', hasta: '' } // rango de fechas para descargar ventas en Reportes
 
       async function pedirDatos(lic, clave) {
         const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/obtener_resumen_dueno`, {
@@ -415,6 +416,19 @@
           v.map((x) => [x.numero, x.fecha, x.metodo, x.total])
         )
       }
+      function expVentasDetalle() {
+        const d = (DATA.snapshot && DATA.snapshot.ventas_detalle) || []
+        const rows = d.map((x) => [
+          x.numero, x.fecha, x.cliente, x.metodo, x.producto, x.talla, x.color, x.cantidad, x.precio_unitario, x.subtotal
+        ])
+        const totalSub = d.reduce((a, x) => a + (Number(x.subtotal) || 0), 0)
+        rows.push(['', '', '', '', '', '', '', '', 'TOTAL', totalSub])
+        descargarCSV(
+          'ventas-detalle.csv',
+          ['N° venta', 'Fecha', 'Cliente', 'Método', 'Producto', 'Talla', 'Color', 'Cantidad', 'Precio unit.', 'Subtotal'],
+          rows
+        )
+      }
       function expTop() {
         const t = (DATA.snapshot && DATA.snapshot.top_mes) || []
         descargarCSV(
@@ -441,6 +455,7 @@
       }
       window.expInventario = expInventario
       window.expVentas = expVentas
+      window.expVentasDetalle = expVentasDetalle
       window.expTop = expTop
       window.expCierres = expCierres
       window.expGastos = expGastos
@@ -472,6 +487,46 @@
       }
       window.setFechaFiltro = (sec, val) => { fechaState[sec] = val; pageState[sec] = 0; render() }
       window.irPag = (sec, d) => { pageState[sec] = Math.max(0, pageState[sec] + d); render() }
+
+      // ---------- rango de fechas para descargar ventas (Reportes) ----------
+      function ymdLocal(dt) {
+        return new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+      }
+      function enRango(fecha) {
+        const f = String(fecha || '').slice(0, 10)
+        if (rango.desde && f < rango.desde) return false
+        if (rango.hasta && f > rango.hasta) return false
+        return true
+      }
+      function ventasRango() {
+        const det = ((DATA.snapshot && DATA.snapshot.ventas_detalle) || []).filter((x) => enRango(x.fecha))
+        const porVenta = {}
+        det.forEach((x) => { porVenta[x.numero] = Number(x.total_venta) || 0 })
+        const totalVentas = Object.values(porVenta).reduce((a, b) => a + b, 0)
+        return { det, numVentas: Object.keys(porVenta).length, totalVentas }
+      }
+      window.setRango = (campo, val) => { rango[campo] = val; render() }
+      window.rangoRapido = (tipo) => {
+        const hoy = new Date()
+        rango.hasta = ymdLocal(hoy)
+        rango.desde = ymdLocal(tipo === 'anio' ? new Date(hoy.getFullYear(), 0, 1) : new Date(hoy.getFullYear(), hoy.getMonth(), 1))
+        render()
+      }
+      window.descargarVentasRango = () => {
+        const { det, totalVentas } = ventasRango()
+        const rows = det.map((x) => [
+          x.numero, x.fecha, x.cliente, x.metodo, x.producto, x.talla, x.color, x.cantidad, x.precio_unitario, x.subtotal
+        ])
+        const totalSub = det.reduce((a, x) => a + (Number(x.subtotal) || 0), 0)
+        rows.push(['', '', '', '', '', '', '', '', 'SUBTOTAL productos', totalSub])
+        rows.push(['', '', '', '', '', '', '', '', 'TOTAL ventas', totalVentas])
+        const suf = (rango.desde || 'inicio') + '_a_' + (rango.hasta || 'hoy')
+        descargarCSV(
+          'ventas_' + suf + '.csv',
+          ['N° venta', 'Fecha', 'Cliente', 'Método', 'Producto', 'Talla', 'Color', 'Cantidad', 'Precio unit.', 'Subtotal'],
+          rows
+        )
+      }
 
       // ---------- secciones ----------
       function secResumen(s) {
@@ -533,7 +588,7 @@
         const pg = paginar(recF, 'ventas')
         return `<div class="kpis">${kpis}</div>
           <div class="block"><div class="block-head"><h2>Ventas recientes</h2>
-            <div class="head-tools">${fechaFiltro('ventas')}<button class="btn ghost sm" onclick="expVentas()">↓ CSV</button></div></div>
+            <div class="head-tools">${fechaFiltro('ventas')}<button class="btn ghost sm" onclick="expVentas()">↓ CSV</button><button class="btn ghost sm" onclick="expVentasDetalle()">↓ Detalle (con productos)</button></div></div>
             <div class="card">${tabla(
               [{ t: 'N°' }, { t: 'Fecha' }, { t: 'Método' }, { t: 'Total', r: true }],
               pg.items.map(
@@ -628,7 +683,21 @@
         const gastos = s.gastos_lista || []
         const totalGastos = gastos.reduce((a, g) => a + (Number(g.monto) || 0), 0)
         const pgG = paginar(filtrarFecha(gastos, 'reportes', (g) => g.fecha), 'reportes')
+        const rng = ventasRango()
         return `<div class="kpis">${kpis}</div>
+          <div class="block"><div class="block-head"><h2>Descargar ventas por período</h2></div>
+            <div class="card pad">
+              <div class="head-tools" style="align-items:flex-end">
+                <div><div class="muted small" style="margin-bottom:4px">Desde</div><input type="date" class="date-filtro" value="${rango.desde}" onchange="setRango('desde', this.value)" /></div>
+                <div><div class="muted small" style="margin-bottom:4px">Hasta</div><input type="date" class="date-filtro" value="${rango.hasta}" onchange="setRango('hasta', this.value)" /></div>
+                <button class="btn ghost sm" onclick="rangoRapido('mes')">Este mes</button>
+                <button class="btn ghost sm" onclick="rangoRapido('anio')">Este año</button>
+                <button class="btn" onclick="descargarVentasRango()">↓ Descargar ventas</button>
+              </div>
+              <div class="muted small" style="margin-top:12px"><b>${num(rng.numVentas)}</b> venta(s) en el período · Total <b style="color:var(--green)">${cop(
+                rng.totalVentas
+              )}</b>. El Excel trae cada producto vendido con su detalle.</div>
+            </div></div>
           <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
             DATA.datos
           )}</div></div>
