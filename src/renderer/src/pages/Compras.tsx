@@ -13,14 +13,33 @@ interface VarianteOpc {
   costo: number
 }
 
+/** Fecha de hoy en formato YYYY-MM-DD según la hora local (no UTC). */
+function hoyLocal(): string {
+  const d = new Date()
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
 export default function Compras({ usuario }: { usuario: Usuario }): JSX.Element {
   const [compras, setCompras] = useState<any[]>([])
   const [nuevaCompra, setNuevaCompra] = useState(false)
   const [verProveedores, setVerProveedores] = useState(false)
   const [detalle, setDetalle] = useState<any | null>(null)
+  const [editar, setEditar] = useState<any | null>(null)
 
   async function cargar(): Promise<void> {
     setCompras((await window.api.comprasList(100)) as any[])
+  }
+
+  async function borrar(c: any): Promise<void> {
+    if (
+      !confirm(
+        `¿Borrar la entrada ${c.numero} por ${cop(c.total)}?\n\nSe descontará del stock la mercancía que había sumado. Esta acción no se puede deshacer.`
+      )
+    ) {
+      return
+    }
+    await window.api.comprasEliminar(c.id)
+    cargar()
   }
   useEffect(() => {
     cargar()
@@ -64,12 +83,15 @@ export default function Compras({ usuario }: { usuario: Usuario }): JSX.Element 
                 <td className="text-right">
                   <b>{cop(c.total)}</b>
                 </td>
-                <td className="text-right">
-                  <button
-                    className="btn-sm"
-                    onClick={async () => setDetalle(await window.api.comprasGet(c.id))}
-                  >
+                <td className="text-right" style={{ whiteSpace: 'nowrap' }}>
+                  <button className="btn-sm" onClick={async () => setDetalle(await window.api.comprasGet(c.id))}>
                     Ver
+                  </button>{' '}
+                  <button className="btn-sm" onClick={async () => setEditar(await window.api.comprasGet(c.id))}>
+                    Editar
+                  </button>{' '}
+                  <button className="btn-sm btn-danger" title="Borrar entrada" onClick={() => borrar(c)}>
+                    <Icon name="trash" size={13} />
                   </button>
                 </td>
               </tr>
@@ -91,6 +113,17 @@ export default function Compras({ usuario }: { usuario: Usuario }): JSX.Element 
           onClose={() => setNuevaCompra(false)}
           onDone={() => {
             setNuevaCompra(false)
+            cargar()
+          }}
+        />
+      )}
+      {editar && (
+        <CompraModal
+          usuario={usuario}
+          edicion={editar}
+          onClose={() => setEditar(null)}
+          onDone={() => {
+            setEditar(null)
             cargar()
           }}
         />
@@ -141,21 +174,35 @@ export default function Compras({ usuario }: { usuario: Usuario }): JSX.Element 
   )
 }
 
-// ---------- Modal registrar compra ----------
+// ---------- Modal registrar compra / entrada de mercancía ----------
 function CompraModal({
   usuario,
+  edicion,
   onClose,
   onDone
 }: {
   usuario: Usuario
+  edicion?: any
   onClose: () => void
   onDone: () => void
 }): JSX.Element {
   const [proveedores, setProveedores] = useState<any[]>([])
-  const [proveedorId, setProveedorId] = useState<number | null>(null)
+  const [proveedorId, setProveedorId] = useState<number | null>(edicion?.proveedor_id ?? null)
   const [opciones, setOpciones] = useState<VarianteOpc[]>([])
-  const [items, setItems] = useState<any[]>([])
-  const [notas, setNotas] = useState('')
+  const [items, setItems] = useState<any[]>(
+    edicion
+      ? (edicion.items ?? []).map((it: any) => ({
+          variante_id: it.variante_id,
+          producto_nombre: it.producto_nombre,
+          talla: it.talla,
+          color: it.color,
+          cantidad: it.cantidad,
+          costo_unitario: it.costo_unitario
+        }))
+      : []
+  )
+  const [notas, setNotas] = useState(edicion?.notas ?? '')
+  const [fecha, setFecha] = useState(edicion ? (edicion.fecha ?? '').slice(0, 10) || hoyLocal() : hoyLocal())
   const [procesando, setProcesando] = useState(false)
   const [categorias, setCategorias] = useState<any[]>([])
   const [nuevoProducto, setNuevoProducto] = useState(false)
@@ -249,14 +296,17 @@ function CompraModal({
       return
     }
     setProcesando(true)
-    await window.api.comprasCrear({
-      proveedor_id: proveedorId,
-      usuario_id: usuario.id,
-      notas,
-      items
-    })
+    const payload = { proveedor_id: proveedorId, usuario_id: usuario.id, notas, fecha, items }
+    try {
+      if (edicion) await window.api.comprasActualizar(edicion.id, payload)
+      else await window.api.comprasCrear(payload)
+    } catch (e: any) {
+      setProcesando(false)
+      alert('No se pudo guardar la entrada:\n' + (e?.message ?? e))
+      return
+    }
     setProcesando(false)
-    alert('Entrada registrada. El stock fue actualizado.')
+    alert(edicion ? 'Entrada actualizada. El stock se ajustó.' : 'Entrada registrada. El stock fue actualizado.')
     onDone()
   }
 
@@ -264,7 +314,7 @@ function CompraModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ width: 720 }} onClick={(e) => e.stopPropagation()}>
         <h2 className="section-title">
-          <Icon name="box" size={20} /> Registrar entrada de mercancía
+          <Icon name="box" size={20} /> {edicion ? 'Editar entrada de mercancía' : 'Registrar entrada de mercancía'}
         </h2>
         <div className="field">
           <label>Proveedor</label>
@@ -324,6 +374,21 @@ function CompraModal({
               </div>
             </div>
           )}
+        </div>
+
+        <div className="field">
+          <label>Fecha de la entrada</label>
+          <input
+            type="date"
+            value={fecha}
+            max={hoyLocal()}
+            onChange={(e) => setFecha(e.target.value || hoyLocal())}
+            style={{ maxWidth: 200 }}
+          />
+          <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Déjala en hoy para una entrada normal. Elige una <b>fecha anterior</b> para cargar inventario de días
+            pasados (útil al empezar a usar el POS con mercancía que ya tenías).
+          </p>
         </div>
 
         <label>Productos que llegan</label>
@@ -405,7 +470,8 @@ function CompraModal({
             Cancelar
           </button>
           <button className="btn-green btn-icon" onClick={guardar} disabled={procesando}>
-            <Icon name="check" size={15} /> {procesando ? 'Guardando...' : 'Registrar y sumar stock'}
+            <Icon name="check" size={15} />{' '}
+            {procesando ? 'Guardando...' : edicion ? 'Guardar cambios' : 'Registrar y sumar stock'}
           </button>
         </div>
       </div>

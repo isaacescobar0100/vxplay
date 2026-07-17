@@ -23,6 +23,12 @@ interface Producto {
   variantes: Variante[]
 }
 
+/** Fecha de hoy en formato YYYY-MM-DD según la hora local (no UTC). */
+function hoyLocalStr(): string {
+  const d = new Date()
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
 export const productoVacio: Producto = {
   sku: '',
   nombre: '',
@@ -38,6 +44,7 @@ const vacio = productoVacio
 export default function Inventario(): JSX.Element {
   const [productos, setProductos] = useState<any[]>([])
   const [filtro, setFiltro] = useState('')
+  const [diaInv, setDiaInv] = useState('')
   const [editando, setEditando] = useState<Producto | null>(null)
   const [stockDe, setStockDe] = useState<any | null>(null)
   const [categorias, setCategorias] = useState<any[]>([])
@@ -73,6 +80,10 @@ export default function Inventario(): JSX.Element {
     cargar()
   }
 
+  const productosVisibles = diaInv
+    ? productos.filter((p) => (p.fecha_inventario ?? '').slice(0, 10) === diaInv)
+    : productos
+
   return (
     <div>
       <div className="page-title">Inventario</div>
@@ -86,6 +97,15 @@ export default function Inventario(): JSX.Element {
             onChange={(e) => setFiltro(e.target.value)}
           />
         </div>
+        <div className="input-icon" title="Filtrar por fecha de inventario">
+          <Icon name="calendar" size={16} />
+          <input type="date" value={diaInv} onChange={(e) => setDiaInv(e.target.value)} style={{ width: 150 }} />
+        </div>
+        {diaInv && (
+          <button className="btn-icon" onClick={() => setDiaInv('')}>
+            Ver todos
+          </button>
+        )}
         <button className="btn-icon" onClick={() => setEtiquetas(true)}>
           <Icon name="scan" size={16} /> Etiquetas
         </button>
@@ -107,13 +127,14 @@ export default function Inventario(): JSX.Element {
               <th>Producto</th>
               <th>Categoría</th>
               <th>SKU</th>
+              <th>Fecha inventario</th>
               <th className="text-right">P. Venta</th>
               <th className="text-right">Stock total</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {productos.map((p) => {
+            {productosVisibles.map((p) => {
               const stock = (p.variantes ?? []).reduce((s: number, v: any) => s + v.stock, 0)
               return (
                 <tr key={p.id}>
@@ -130,6 +151,7 @@ export default function Inventario(): JSX.Element {
                   </td>
                   <td className="muted">{p.categoria ?? '—'}</td>
                   <td className="muted">{p.sku ?? '—'}</td>
+                  <td className="muted">{(p.fecha_inventario ?? '').slice(0, 10) || '—'}</td>
                   <td className="text-right">{cop(p.precio_venta)}</td>
                   <td className="text-right">
                     <span className={'badge ' + (stock <= 3 ? 'badge-red' : 'badge-green')}>
@@ -154,10 +176,10 @@ export default function Inventario(): JSX.Element {
                 </tr>
               )
             })}
-            {productos.length === 0 && (
+            {productosVisibles.length === 0 && (
               <tr>
-                <td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 30 }}>
-                  No hay productos registrados.
+                <td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 30 }}>
+                  {diaInv ? 'No hay productos con inventario de esa fecha.' : 'No hay productos registrados.'}
                 </td>
               </tr>
             )}
@@ -230,9 +252,15 @@ function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImport
     const r: any = await window.api.productosImportarGuardar(preview.productos)
     setGuardando(false)
     if (r?.ok) {
+      const skus = (r.skusOmitidos ?? []).join(', ')
       alert(
-        `Importación lista:\n• ${r.creados} productos creados\n• ${r.variantes} variantes\n• ${r.categoriasNuevas} categorías nuevas` +
-          (r.omitidos ? `\n• ${r.omitidos} omitidos (SKU ya existía)` : '')
+        `Importación lista:\n• ${r.creados} productos creados` +
+          (r.reactivados ? `\n• ${r.reactivados} reactivados (estaban borrados)` : '') +
+          `\n• ${r.variantes} variantes\n• ${r.categoriasNuevas} categorías nuevas` +
+          (r.omitidos
+            ? `\n• ${r.omitidos} omitidos por SKU repetido${skus ? ` (${skus})` : ''}` +
+              `\n\n⚠️ Esos productos ya existen con ese SKU. Para cargarlos, en el Excel ponles un SKU distinto o deja la columna SKU en blanco.`
+            : '')
       )
       onImportado()
     } else {
@@ -246,8 +274,10 @@ function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImport
         <h2>Importar productos desde Excel</h2>
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
           Sube un archivo <b>.xlsx</b> o <b>.csv</b>. Columnas: <code>nombre, categoria, marca, sku, precio_compra,
-          precio_venta, iva, codigo_barras, talla, color, stock, stock_minimo</code>. Solo <b>nombre</b> es obligatorio.
-          Si repites el mismo nombre con distinta talla/color, se crean como variantes del mismo producto.
+          precio_venta, iva, codigo_barras, talla, color, stock, stock_minimo, fecha</code>. Solo <b>nombre</b> es
+          obligatorio. Si repites el mismo nombre con distinta talla/color, se crean como variantes del mismo producto.
+          Deja <b>sku</b> en blanco si no quieres controlarlo (evita choques por SKU repetido). La columna <b>fecha</b>
+          (AAAA-MM-DD) sirve para cargar inventario de días anteriores.
         </p>
 
         {!preview ? (
@@ -640,6 +670,7 @@ export function ProductoModal({
   })
   const [agregandoCat, setAgregandoCat] = useState(false)
   const [catNombre, setCatNombre] = useState('')
+  const [fecha, setFecha] = useState(hoyLocalStr())
 
   function set<K extends keyof Producto>(k: K, v: Producto[K]): void {
     setForm((f) => ({ ...f, [k]: v }))
@@ -694,13 +725,22 @@ export function ProductoModal({
     setAgregandoCat(false)
   }
 
+  const [guardandoProd, setGuardandoProd] = useState(false)
   async function guardar(): Promise<void> {
     if (!form.nombre.trim()) {
       alert('El nombre es obligatorio')
       return
     }
-    await window.api.productosSave(form)
-    onSaved()
+    if (guardandoProd) return
+    setGuardandoProd(true)
+    try {
+      await window.api.productosSave({ ...form, fecha })
+      onSaved()
+    } catch (e: any) {
+      alert('No se pudo guardar el producto:\n' + (e?.message ?? e))
+    } finally {
+      setGuardandoProd(false)
+    }
   }
 
   return (
@@ -795,6 +835,22 @@ export function ProductoModal({
             </div>
           )}
         </div>
+
+        {!form.id && (
+          <div className="field">
+            <label>Fecha del inventario inicial</label>
+            <input
+              type="date"
+              value={fecha}
+              max={hoyLocalStr()}
+              onChange={(e) => setFecha(e.target.value || hoyLocalStr())}
+              style={{ maxWidth: 200 }}
+            />
+            <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+              Déjala en hoy, o ponla en una fecha anterior para cargar inventario de días pasados.
+            </span>
+          </div>
+        )}
 
         {esRopa ? (
           <>
@@ -908,9 +964,11 @@ export function ProductoModal({
         )}
 
         <div className="modal-foot">
-          <button onClick={onClose}>Cancelar</button>
-          <button className="btn-primary" onClick={guardar}>
-            Guardar
+          <button onClick={onClose} disabled={guardandoProd}>
+            Cancelar
+          </button>
+          <button className="btn-primary" onClick={guardar} disabled={guardandoProd}>
+            {guardandoProd ? 'Guardando...' : 'Guardar'}
           </button>
         </div>
       </div>

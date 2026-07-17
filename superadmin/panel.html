@@ -153,6 +153,9 @@
 
       .empty { color: var(--muted); font-size: 13.5px; padding: 22px; text-align: center; }
       .search { max-width: 260px; }
+      .date-filtro { width: auto; max-width: 165px; font-size: 14px; }
+      .pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+      .head-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
       .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
@@ -247,6 +250,9 @@
       let invFiltro = ''
       let timer = null
       const TITULOS = { resumen: 'Resumen', ventas: 'Ventas', caja: 'Caja', inventario: 'Inventario', reportes: 'Reportes' }
+      const PAGE = 15
+      const pageState = { ventas: 0, caja: 0, inventario: 0, reportes: 0 }
+      const fechaState = { ventas: '', caja: '', inventario: '', reportes: '' }
 
       async function pedirDatos(lic, clave) {
         const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/obtener_resumen_dueno`, {
@@ -397,8 +403,8 @@
         const lista = (DATA.snapshot && DATA.snapshot.inventario && DATA.snapshot.inventario.lista) || []
         descargarCSV(
           'inventario.csv',
-          ['Producto', 'SKU', 'Stock', 'Precio compra', 'Precio venta', 'Valor a venta'],
-          lista.map((p) => [p.nombre, p.sku, p.stock, p.compra, p.venta, (p.stock || 0) * (p.venta || 0)])
+          ['Producto', 'SKU', 'Fecha inventario', 'Stock', 'Precio compra', 'Precio venta', 'Valor a venta'],
+          lista.map((p) => [p.nombre, p.sku, (p.fecha || '').slice(0, 10), p.stock, p.compra, p.venta, (p.stock || 0) * (p.venta || 0)])
         )
       }
       function expVentas() {
@@ -438,6 +444,34 @@
       window.expTop = expTop
       window.expCierres = expCierres
       window.expGastos = expGastos
+
+      // ---------- paginación + filtro por fecha ----------
+      function filtrarFecha(arr, sec, getF) {
+        const f = fechaState[sec]
+        if (!f) return arr
+        return arr.filter((x) => String(getF(x) || '').slice(0, 10) === f)
+      }
+      function paginar(arr, sec) {
+        const total = Math.max(1, Math.ceil(arr.length / PAGE))
+        const page = Math.min(pageState[sec], total - 1)
+        return { items: arr.slice(page * PAGE, page * PAGE + PAGE), total, page, count: arr.length }
+      }
+      function fechaFiltro(sec) {
+        return (
+          `<input type="date" class="date-filtro" value="${fechaState[sec]}" onchange="setFechaFiltro('${sec}', this.value)" />` +
+          (fechaState[sec] ? `<button class="btn ghost sm" onclick="setFechaFiltro('${sec}','')">Ver todo</button>` : '')
+        )
+      }
+      function pager(sec, p) {
+        if (p.total <= 1) return `<p class="muted small" style="margin-top:10px">${num(p.count)} registro(s)</p>`
+        return `<div class="pager">
+          <button class="btn ghost sm" ${p.page === 0 ? 'disabled' : ''} onclick="irPag('${sec}',-1)">← Anterior</button>
+          <span class="muted small">Página ${p.page + 1} de ${p.total} · ${num(p.count)} registro(s)</span>
+          <button class="btn ghost sm" ${p.page >= p.total - 1 ? 'disabled' : ''} onclick="irPag('${sec}',1)">Siguiente →</button>
+        </div>`
+      }
+      window.setFechaFiltro = (sec, val) => { fechaState[sec] = val; pageState[sec] = 0; render() }
+      window.irPag = (sec, d) => { pageState[sec] = Math.max(0, pageState[sec] + d); render() }
 
       // ---------- secciones ----------
       function secResumen(s) {
@@ -495,17 +529,20 @@
               )
               .join('')
           : `<div class="empty">Sin ventas este mes.</div>`
+        const recF = filtrarFecha(rec, 'ventas', (v) => v.fecha)
+        const pg = paginar(recF, 'ventas')
         return `<div class="kpis">${kpis}</div>
-          <div class="block"><div class="block-head"><h2>Ventas recientes</h2><button class="btn ghost sm" onclick="expVentas()">↓ Exportar CSV</button></div>
+          <div class="block"><div class="block-head"><h2>Ventas recientes</h2>
+            <div class="head-tools">${fechaFiltro('ventas')}<button class="btn ghost sm" onclick="expVentas()">↓ CSV</button></div></div>
             <div class="card">${tabla(
               [{ t: 'N°' }, { t: 'Fecha' }, { t: 'Método' }, { t: 'Total', r: true }],
-              rec.map(
+              pg.items.map(
                 (v) =>
                   `<tr><td>${esc(v.numero)}</td><td class="muted">${fmtFechaHora(v.fecha)}</td><td>${esc(
                     v.metodo
                   )}</td><td class="r">${cop(v.total)}</td></tr>`
               )
-            )}</div></div>
+            )}</div>${pager('ventas', pg)}</div>
           <div class="block"><div class="block-head"><h2>Métodos de pago (mes)</h2></div><div class="card">${metCard}</div></div>`
       }
 
@@ -523,7 +560,9 @@
           kpi('Cierres registrados', num(cierres.length), ''),
           kpi('Con descuadre', num(descuadres), descuadres > 0 ? 'red' : 'green', descuadres > 0 ? 'Revisar' : 'Todo cuadra')
         ].join('')
-        const filas = cierres.map((c) => {
+        const cierresF = filtrarFecha(cierres, 'caja', (c) => c.fecha_cierre)
+        const pg = paginar(cierresF, 'caja')
+        const filas = pg.items.map((c) => {
           const dif = Number(c.diferencia) || 0
           const col = dif === 0 ? 'var(--green)' : dif < 0 ? 'var(--red)' : 'var(--amber)'
           const txt = dif === 0 ? 'Cuadra' : (dif > 0 ? '+' : '') + cop(dif)
@@ -533,11 +572,12 @@
         })
         return `<div class="kpis">${kpis}</div>
           <div class="block"><div class="block-head"><h2>Estado actual</h2></div>${cajaCard}</div>
-          <div class="block"><div class="block-head"><h2>Cierres de caja (arqueos)</h2><button class="btn ghost sm" onclick="expCierres()">↓ Exportar CSV</button></div>
+          <div class="block"><div class="block-head"><h2>Cierres de caja (arqueos)</h2>
+            <div class="head-tools">${fechaFiltro('caja')}<button class="btn ghost sm" onclick="expCierres()">↓ CSV</button></div></div>
             <div class="card">${tabla(
               [{ t: 'Cierre' }, { t: 'Cajero' }, { t: 'Esperado', r: true }, { t: 'Contado', r: true }, { t: 'Diferencia', r: true }],
               filas
-            )}</div>
+            )}</div>${pager('caja', pg)}
             <p class="muted small" style="margin-top:10px">La <b>diferencia</b> es lo contado menos lo esperado en efectivo. Rojo = faltó plata, ámbar = sobró.</p>
           </div>`
       }
@@ -546,16 +586,20 @@
         const inv = s.inventario || {}
         const lista = inv.lista || []
         const f = invFiltro.trim().toLowerCase()
-        const filtrada = f ? lista.filter((p) => (p.nombre + ' ' + (p.sku || '')).toLowerCase().includes(f)) : lista
+        let filtrada = f ? lista.filter((p) => (p.nombre + ' ' + (p.sku || '')).toLowerCase().includes(f)) : lista
+        filtrada = filtrarFecha(filtrada, 'inventario', (p) => p.fecha)
+        const pg = paginar(filtrada, 'inventario')
         const kpis = [
           kpi('Referencias', num(inv.items), ''),
           kpi('Unidades en stock', num(inv.unidades), ''),
           kpi('Valor a costo', cop(inv.valor_costo), ''),
           kpi('Valor a venta', cop(inv.valor_venta), 'green')
         ].join('')
-        const filas = filtrada.map(
+        const filas = pg.items.map(
           (p) =>
-            `<tr><td class="name-cell">${esc(p.nombre)}</td><td class="muted">${esc(p.sku || '—')}</td><td class="r" style="color:${
+            `<tr><td class="name-cell">${esc(p.nombre)}</td><td class="muted">${esc(p.sku || '—')}</td><td class="muted">${
+              (p.fecha || '').slice(0, 10) || '—'
+            }</td><td class="r" style="color:${
               p.stock <= 0 ? 'var(--red)' : p.stock <= 3 ? 'var(--amber)' : 'inherit'
             };font-weight:600">${num(p.stock)}</td><td class="r muted">${cop(p.compra)}</td><td class="r">${cop(
               p.venta
@@ -564,15 +608,12 @@
         return `<div class="kpis">${kpis}</div>
           <div class="block"><div class="block-head">
             <input class="search" id="invSearch" placeholder="Buscar producto o SKU..." value="${esc(invFiltro)}" oninput="onInvSearch(this.value)" />
-            <button class="btn ghost sm" onclick="expInventario()">↓ Exportar CSV</button>
+            <div class="head-tools">${fechaFiltro('inventario')}<button class="btn ghost sm" onclick="expInventario()">↓ CSV</button></div>
           </div>
           <div class="card">${tabla(
-            [{ t: 'Producto' }, { t: 'SKU' }, { t: 'Stock', r: true }, { t: 'Compra', r: true }, { t: 'Venta', r: true }, { t: 'Valor', r: true }],
+            [{ t: 'Producto' }, { t: 'SKU' }, { t: 'Fecha inv.' }, { t: 'Stock', r: true }, { t: 'Compra', r: true }, { t: 'Venta', r: true }, { t: 'Valor', r: true }],
             filas
-          )}</div>
-          <p class="muted small" style="margin-top:10px">${
-            lista.length >= 500 ? 'Mostrando las primeras 500 referencias.' : 'Total: ' + num(filtrada.length) + ' referencia(s).'
-          }</p></div>`
+          )}</div>${pager('inventario', pg)}</div>`
       }
 
       function secReportes(s) {
@@ -586,6 +627,7 @@
         const bajo = s.stock_bajo || []
         const gastos = s.gastos_lista || []
         const totalGastos = gastos.reduce((a, g) => a + (Number(g.monto) || 0), 0)
+        const pgG = paginar(filtrarFecha(gastos, 'reportes', (g) => g.fecha), 'reportes')
         return `<div class="kpis">${kpis}</div>
           <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
             DATA.datos
@@ -597,16 +639,16 @@
             )}</div></div>
           <div class="block"><div class="block-head"><h2>Gastos del mes${
             totalGastos ? ` · ${cop(totalGastos)}` : ''
-          }</h2><button class="btn ghost sm" onclick="expGastos()">↓ Exportar CSV</button></div>
+          }</h2><div class="head-tools">${fechaFiltro('reportes')}<button class="btn ghost sm" onclick="expGastos()">↓ CSV</button></div></div>
             <div class="card">${tabla(
               [{ t: 'Fecha' }, { t: 'Concepto' }, { t: 'Categoría' }, { t: 'Método' }, { t: 'Monto', r: true }],
-              gastos.map(
+              pgG.items.map(
                 (g) =>
                   `<tr><td class="muted">${fmtFechaHora(g.fecha)}</td><td class="name-cell">${esc(g.concepto)}</td><td class="muted">${esc(
                     g.categoria || '—'
                   )}</td><td>${esc(g.metodo)}</td><td class="r">${cop(g.monto)}</td></tr>`
               )
-            )}</div></div>
+            )}</div>${pager('reportes', pgG)}</div>
           <div class="block"><div class="block-head"><h2>Productos con stock bajo</h2></div>
             <div class="card">${tabla(
               [{ t: 'Producto' }, { t: 'Stock', r: true }, { t: 'Mínimo', r: true }],

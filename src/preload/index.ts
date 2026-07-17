@@ -55,8 +55,9 @@ const api = {
 
   // Ventas
   ventasCrear: (venta: unknown) => ipcRenderer.invoke('ventas:crear', venta),
+  ventasCrearAnterior: (venta: unknown) => ipcRenderer.invoke('ventas:crearAnterior', venta),
   ventasGet: (id: number) => ipcRenderer.invoke('ventas:get', id),
-  ventasList: (limit?: number) => ipcRenderer.invoke('ventas:list', limit),
+  ventasList: (limit?: number, dia?: string) => ipcRenderer.invoke('ventas:list', limit, dia),
   facturarDian: (ventaId: number) => ipcRenderer.invoke('ventas:facturarDian', ventaId),
   dianProbar: () => ipcRenderer.invoke('dian:probar'),
 
@@ -118,6 +119,8 @@ const api = {
 
   // Compras
   comprasCrear: (data: unknown) => ipcRenderer.invoke('compras:crear', data),
+  comprasActualizar: (id: number, data: unknown) => ipcRenderer.invoke('compras:actualizar', id, data),
+  comprasEliminar: (id: number) => ipcRenderer.invoke('compras:eliminar', id),
   comprasList: (limit?: number) => ipcRenderer.invoke('compras:list', limit),
   comprasGet: (id: number) => ipcRenderer.invoke('compras:get', id),
 

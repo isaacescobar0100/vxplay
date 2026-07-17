@@ -9,6 +9,7 @@ import HistorialVentas from './pages/HistorialVentas'
 import Caja from './pages/Caja'
 import Usuarios from './pages/Usuarios'
 import Compras from './pages/Compras'
+import VentaAnterior from './pages/VentaAnterior'
 import Inicio from './pages/Inicio'
 import Mesas from './pages/Mesas'
 import CuentasPorCobrar from './pages/CuentasPorCobrar'
@@ -27,6 +28,7 @@ type Vista =
   | 'mesas'
   | 'caja'
   | 'historial'
+  | 'ventaanterior'
   | 'inventario'
   | 'compras'
   | 'clientes'
@@ -45,6 +47,7 @@ const NAV: { key: Vista; label: string; icon: IconName; roles?: string[]; tipos?
   { key: 'historial', label: 'Ventas', icon: 'receipt' },
   { key: 'inventario', label: 'Inventario', icon: 'shirt', roles: ['admin'] },
   { key: 'compras', label: 'Compras', icon: 'box', roles: ['admin'] },
+  { key: 'ventaanterior', label: 'Registrar venta anterior', icon: 'calendar', roles: ['admin'] },
   { key: 'clientes', label: 'Clientes', icon: 'users' },
   { key: 'fiado', label: 'Cuentas por cobrar', icon: 'receipt', flag: 'fiado_habilitado' },
   { key: 'reportes', label: 'Reportes', icon: 'chart', roles: ['admin'] },
@@ -207,6 +210,7 @@ export default function App(): JSX.Element {
         {vista === 'historial' && <HistorialVentas usuario={usuario} />}
         {vista === 'inventario' && <Inventario />}
         {vista === 'compras' && <Compras usuario={usuario} />}
+        {vista === 'ventaanterior' && <VentaAnterior usuario={usuario} />}
         {vista === 'clientes' && <Clientes />}
         {vista === 'fiado' && <CuentasPorCobrar usuarioActual={usuario} />}
         {vista === 'reportes' && <Reportes />}

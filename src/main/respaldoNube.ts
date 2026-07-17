@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs'
 import { queryOne, query, run, persist, getDbPath } from './db'
 import { SUPABASE_URL, SUPABASE_ANON } from './supabase'
+import { crearBackupAutomatico } from './backup'
 
 /**
  * Respaldo de la base de datos de cada tienda en la nube (Supabase Storage).
@@ -73,6 +74,13 @@ export async function bajarRespaldo(licenciaManual?: string): Promise<{ ok: bool
     }
     const buf = Buffer.from(r.archivo, 'base64')
     if (buf.length < 100) return { ok: false, error: 'El respaldo descargado está vacío.' }
+    // Red de seguridad: respalda el estado ACTUAL antes de sobrescribirlo, para
+    // poder deshacer una restauración equivocada (queda en Respaldo local).
+    try {
+      crearBackupAutomatico()
+    } catch {
+      /* si no se pudo respaldar lo actual, continuamos con la restauración */
+    }
     writeFileSync(getDbPath(), buf)
     return { ok: true }
   } catch (e: any) {
@@ -105,18 +113,25 @@ function construirSnapshot(): Record<string, unknown> {
   const r = Math.round
   const dianOn = getCfg('dian_habilitado') === '1'
 
+  // El "hoy" del Panel se calcula por la CAJA/turno actual, EXACTAMENTE como el
+  // Inicio del POS (así ambos coinciden). Si la caja está cerrada, hoy = 0.
+  const caja = queryOne<{ id: number; fecha_apertura: string; monto_inicial: number }>(
+    `SELECT id, fecha_apertura, monto_inicial FROM caja_sesiones WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1`
+  )
+  const sid = caja?.id ?? -1
+
   const vHoy = queryOne<{ num: number; bruto: number }>(
     `SELECT COUNT(*) as num, COALESCE(SUM(total),0) as bruto
-     FROM ventas WHERE estado = 'completada' AND date(fecha) = date('now','localtime')`
+     FROM ventas WHERE estado = 'completada' AND sesion_id = ${sid}`
   )
   const devHoy = queryOne<{ ndev: number; monto: number }>(
     `SELECT COUNT(*) as ndev, COALESCE(SUM(total),0) as monto
-     FROM devoluciones WHERE date(fecha) = date('now','localtime')`
+     FROM devoluciones WHERE sesion_id = ${sid}`
   )
   const gastoHoy = queryOne<{ g: number }>(
-    `SELECT COALESCE(SUM(monto),0) as g FROM gastos WHERE date(fecha) = date('now','localtime')`
+    `SELECT COALESCE(SUM(monto),0) as g FROM gastos WHERE sesion_id = ${sid}`
   )
-  // Utilidad = (ingreso base sin IVA) - costo, neteando devoluciones del día
+  // Utilidad = (ingreso base sin IVA) - costo, neteando devoluciones del turno
   const util = queryOne<{ ingreso: number; costo: number }>(
     `SELECT
        COALESCE(SUM(vi.cantidad * vi.precio_unitario * 100.0 / (100 + vi.iva_porcentaje)),0) as ingreso,
@@ -125,7 +140,7 @@ function construirSnapshot(): Record<string, unknown> {
      JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN variantes va ON va.id = vi.variante_id
      LEFT JOIN productos p ON p.id = va.producto_id
-     WHERE v.estado = 'completada' AND date(v.fecha) = date('now','localtime')`
+     WHERE v.estado = 'completada' AND v.sesion_id = ${sid}`
   )
   const utilDev = queryOne<{ base: number; costo: number }>(
     `SELECT
@@ -135,21 +150,19 @@ function construirSnapshot(): Record<string, unknown> {
      JOIN devoluciones d ON d.id = di.devolucion_id
      LEFT JOIN variantes va ON va.id = di.variante_id
      LEFT JOIN productos p ON p.id = va.producto_id
-     WHERE date(d.fecha) = date('now','localtime')`
+     WHERE d.sesion_id = ${sid}`
   )
+  // El mes SÍ es por calendario (para Reportes)
   const mes = queryOne<{ num: number; total: number }>(
     `SELECT COUNT(*) as num, COALESCE(SUM(total),0) as total
      FROM ventas WHERE estado = 'completada'
        AND strftime('%Y-%m', fecha) = strftime('%Y-%m','now','localtime')`
   )
-  const caja = queryOne<{ id: number; fecha_apertura: string; monto_inicial: number }>(
-    `SELECT id, fecha_apertura, monto_inicial FROM caja_sesiones WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1`
-  )
   const top = query<{ nombre: string; cantidad: number; total: number }>(
     `SELECT vi.producto_nombre as nombre, SUM(vi.cantidad) as cantidad,
             SUM(vi.cantidad * vi.precio_unitario) as total
      FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
-     WHERE v.estado = 'completada' AND date(v.fecha) = date('now','localtime')
+     WHERE v.estado = 'completada' AND v.sesion_id = ${sid}
      GROUP BY vi.producto_nombre ORDER BY cantidad DESC LIMIT 5`
   )
   const stockBajo = query<{ nombre: string; stock: number; minimo: number }>(
@@ -195,18 +208,20 @@ function construirSnapshot(): Record<string, unknown> {
             COALESCE(SUM(va.stock * p.precio_venta),0) as venta
      FROM variantes va JOIN productos p ON p.id = va.producto_id WHERE p.activo = 1`
   )
-  const invLista = query<{ nombre: string; sku: string; stock: number; compra: number; venta: number }>(
+  const invLista = query<{ nombre: string; sku: string; stock: number; compra: number; venta: number; fecha: string }>(
     `SELECT p.nombre ||
             CASE WHEN COALESCE(va.talla,'') <> '' OR COALESCE(va.color,'') <> ''
                  THEN ' (' || TRIM(COALESCE(va.talla,'') || ' ' || COALESCE(va.color,'')) || ')' ELSE '' END as nombre,
-            COALESCE(p.sku,'') as sku, va.stock, p.precio_compra as compra, p.precio_venta as venta
+            COALESCE(p.sku,'') as sku, va.stock, p.precio_compra as compra, p.precio_venta as venta,
+            COALESCE((SELECT MIN(m.fecha) FROM movimientos_inventario m
+                      WHERE m.variante_id = va.id AND m.tipo = 'entrada'), p.creado_en) as fecha
      FROM variantes va JOIN productos p ON p.id = va.producto_id
      WHERE p.activo = 1 ORDER BY p.nombre LIMIT 500`
   )
-  // Ventas recientes (el "monitoreo en vivo")
+  // Ventas recientes (el "monitoreo en vivo") — historial amplio para paginar/filtrar
   const ventasRec = query<{ numero: string; fecha: string; total: number; metodo: string }>(
     `SELECT numero, fecha, total, metodo_pago as metodo FROM ventas
-     WHERE estado = 'completada' ORDER BY id DESC LIMIT 25`
+     WHERE estado = 'completada' ORDER BY id DESC LIMIT 300`
   )
   // Comparativos: ayer y mes pasado
   const vAyer = queryOne<{ bruto: number }>(
@@ -229,7 +244,7 @@ function construirSnapshot(): Record<string, unknown> {
     `SELECT s.fecha_apertura, s.fecha_cierre, s.monto_inicial, s.monto_esperado, s.monto_contado,
             s.diferencia, COALESCE(u.nombre,'') as cajero
      FROM caja_sesiones s LEFT JOIN usuarios u ON u.id = s.usuario_cierre_id
-     WHERE s.estado = 'cerrada' ORDER BY s.id DESC LIMIT 20`
+     WHERE s.estado = 'cerrada' ORDER BY s.id DESC LIMIT 150`
   )
   // Detalle de gastos del mes
   const gastosLista = query<{ fecha: string; concepto: string; categoria: string; metodo: string; monto: number }>(

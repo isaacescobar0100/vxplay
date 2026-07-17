@@ -3,19 +3,35 @@ import { cop } from '../util'
 import Icon from '../components/Icon'
 import type { Usuario } from '../App'
 
+const POR_PAGINA = 20
+
 export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.Element {
   const [ventas, setVentas] = useState<any[]>([])
   const [detalle, setDetalle] = useState<any | null>(null)
   const [devolver, setDevolver] = useState<any | null>(null)
   const [dianOn, setDianOn] = useState(false)
+  const [dia, setDia] = useState(
+    () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+  ) // por defecto: hoy
+  const [pagina, setPagina] = useState(0)
 
   async function cargar(): Promise<void> {
-    setVentas((await window.api.ventasList(200)) as any[])
+    const lista = (await window.api.ventasList(1000, dia || undefined)) as any[]
+    setVentas(lista)
   }
   useEffect(() => {
-    cargar()
     window.api.configGetAll().then((c: any) => setDianOn(c.dian_habilitado === '1'))
   }, [])
+  useEffect(() => {
+    setPagina(0)
+    cargar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dia])
+
+  const totalPaginas = Math.max(1, Math.ceil(ventas.length / POR_PAGINA))
+  const paginaSegura = Math.min(pagina, totalPaginas - 1)
+  const visibles = ventas.slice(paginaSegura * POR_PAGINA, paginaSegura * POR_PAGINA + POR_PAGINA)
+  const hoyLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
 
   async function verDetalle(id: number): Promise<void> {
     setDetalle(await window.api.ventasGet(id))
@@ -42,13 +58,37 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
   return (
     <div>
       <div className="page-title">Historial de ventas</div>
+
+      <div className="toolbar">
+        <div className="input-icon">
+          <Icon name="calendar" size={16} />
+          <input
+            type="date"
+            value={dia}
+            max={hoyLocal}
+            onChange={(e) => setDia(e.target.value)}
+            style={{ width: 170 }}
+          />
+        </div>
+        {dia && (
+          <button className="btn-sm" onClick={() => setDia('')}>
+            Ver todas
+          </button>
+        )}
+        <div style={{ flex: 1 }} />
+        <span className="muted" style={{ fontSize: 13 }}>
+          {ventas.length} venta{ventas.length === 1 ? '' : 's'}
+          {dia ? ' el ' + dia : ''}
+        </span>
+      </div>
+
       <div className="card" style={{ padding: 0 }}>
         <table>
           <thead>
             <tr>
               <th>Venta</th>
               <th>Fecha</th>
-              <th>Cliente</th>
+              <th>Productos</th>
               <th>Pago</th>
               <th className="text-right">Total</th>
               {dianOn && <th>DIAN</th>}
@@ -56,7 +96,7 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
             </tr>
           </thead>
           <tbody>
-            {ventas.map((v) => (
+            {visibles.map((v) => (
               <tr key={v.id}>
                 <td>
                   <b>{v.numero}</b>
@@ -67,7 +107,12 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
                   )}
                 </td>
                 <td className="muted">{v.fecha}</td>
-                <td>{v.cliente_nombre ?? 'Consumidor final'}</td>
+                <td
+                  title={v.productos ?? ''}
+                  style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  {v.productos ?? '—'}
+                </td>
                 <td className="muted">{v.metodo_pago}</td>
                 <td className="text-right">
                   <b>{cop(v.total)}</b>
@@ -83,13 +128,34 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
             {ventas.length === 0 && (
               <tr>
                 <td colSpan={dianOn ? 7 : 6} className="muted" style={{ textAlign: 'center', padding: 30 }}>
-                  Aún no hay ventas registradas.
+                  {dia ? 'No hay ventas ese día.' : 'Aún no hay ventas registradas.'}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {totalPaginas > 1 && (
+        <div
+          className="row"
+          style={{ marginTop: 12, alignItems: 'center', justifyContent: 'center', gap: 14 }}
+        >
+          <button className="btn-sm" disabled={paginaSegura === 0} onClick={() => setPagina(paginaSegura - 1)}>
+            ← Anterior
+          </button>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Página {paginaSegura + 1} de {totalPaginas}
+          </span>
+          <button
+            className="btn-sm"
+            disabled={paginaSegura >= totalPaginas - 1}
+            onClick={() => setPagina(paginaSegura + 1)}
+          >
+            Siguiente →
+          </button>
+        </div>
+      )}
 
       {detalle && (
         <div className="modal-overlay" onClick={() => setDetalle(null)}>

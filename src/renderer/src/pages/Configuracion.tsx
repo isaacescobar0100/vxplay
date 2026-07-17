@@ -52,7 +52,17 @@ export default function Configuracion(): JSX.Element {
     }
   }
   async function restaurarNube(): Promise<void> {
-    if (!confirm('¿Restaurar los datos desde la nube?\n\nSe reemplazarán los datos actuales de este equipo por la última copia en la nube. La app se reiniciará.')) {
+    if (
+      !confirm(
+        '⚠️ RESTAURAR DESDE LA NUBE\n\n' +
+          'Esto REEMPLAZA los datos actuales de este equipo por la última copia en la nube. ' +
+          'Si aquí hay ventas más nuevas que la copia, se perderían.\n\n' +
+          'Úsalo solo para RECUPERAR (equipo dañado o datos perdidos), no a diario.\n\n' +
+          'Tranquilo: antes de reemplazar, se guarda automáticamente una copia del estado actual ' +
+          '(queda en "Respaldo local"), por si necesitas volver atrás.\n\n' +
+          '¿Continuar? La app se reiniciará.'
+      )
+    ) {
       return
     }
     const r: any = await window.api.nubeRestaurar()
@@ -234,6 +244,8 @@ export default function Configuracion(): JSX.Element {
         </div>
       </div>
 
+      {cfg.tipo_negocio !== 'ropa' && (
+      <>
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 className="section-title" style={{ marginBottom: 6 }}>
           <Icon name="users" size={18} /> Fiado / crédito (cuentas por cobrar)
@@ -301,7 +313,10 @@ export default function Configuracion(): JSX.Element {
           Recuerda dar <b>Guardar</b> y reiniciar la app para aplicarlo.
         </p>
       </div>
+      </>
+      )}
 
+      {cfg.tipo_negocio !== 'ropa' && (
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 className="section-title" style={{ marginBottom: 6 }}>
           <Icon name="qr" size={18} /> Carta digital (QR por mesa)
@@ -317,6 +332,7 @@ export default function Configuracion(): JSX.Element {
           </button>
         </div>
       </div>
+      )}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <h3 className="section-title" style={{ marginBottom: 6 }}>

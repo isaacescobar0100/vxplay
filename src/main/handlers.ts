@@ -211,14 +211,20 @@ export function registerHandlers(): void {
   ipcMain.handle('productos:list', (_e, filtro?: string) => {
     const productos = filtro
       ? query(
-          `SELECT p.*, c.nombre as categoria
+          `SELECT p.*, c.nombre as categoria,
+             COALESCE((SELECT MIN(m.fecha) FROM movimientos_inventario m
+                       JOIN variantes va ON va.id = m.variante_id
+                       WHERE va.producto_id = p.id AND m.tipo = 'entrada'), p.creado_en) as fecha_inventario
            FROM productos p LEFT JOIN categorias c ON c.id = p.categoria_id
            WHERE p.activo = 1 AND (p.nombre LIKE ? OR p.sku LIKE ?)
            ORDER BY p.nombre`,
           [`%${filtro}%`, `%${filtro}%`]
         )
       : query(
-          `SELECT p.*, c.nombre as categoria
+          `SELECT p.*, c.nombre as categoria,
+             COALESCE((SELECT MIN(m.fecha) FROM movimientos_inventario m
+                       JOIN variantes va ON va.id = m.variante_id
+                       WHERE va.producto_id = p.id AND m.tipo = 'entrada'), p.creado_en) as fecha_inventario
            FROM productos p LEFT JOIN categorias c ON c.id = p.categoria_id
            WHERE p.activo = 1 ORDER BY p.nombre`
         )
@@ -239,6 +245,11 @@ export function registerHandlers(): void {
 
   ipcMain.handle('productos:save', (_e, data: any) => {
     let productoId = data.id as number | undefined
+    // Fecha opcional (YYYY-MM-DD) para el stock inicial de variantes nuevas.
+    const fechaMov =
+      typeof data.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.fecha)
+        ? data.fecha + ' 12:00:00'
+        : null
     transaction(() => {
       if (productoId) {
         // Nota: usar getDb().run (NO run()) dentro de una transacción, porque
@@ -290,16 +301,27 @@ export function registerHandlers(): void {
         if (v.id) {
           getDb().run(
             'UPDATE variantes SET talla=?, color=?, codigo_barras=?, stock=?, stock_minimo=? WHERE id=?',
-            [v.talla ?? null, v.color ?? null, v.codigo_barras ?? null, v.stock ?? 0, v.stock_minimo ?? 0, v.id]
+            [v.talla ?? null, v.color ?? null, v.codigo_barras || null, v.stock ?? 0, v.stock_minimo ?? 0, v.id]
           )
         } else {
           getDb().run(
             'INSERT INTO variantes (producto_id, talla, color, codigo_barras, stock, stock_minimo) VALUES (?,?,?,?,?,?)',
-            [productoId!, v.talla ?? null, v.color ?? null, v.codigo_barras ?? null, v.stock ?? 0, v.stock_minimo ?? 0]
+            [productoId!, v.talla ?? null, v.color ?? null, v.codigo_barras || null, v.stock ?? 0, v.stock_minimo ?? 0]
           )
+          // Si la variante nueva trae stock, deja el movimiento en el kardex con la
+          // fecha indicada (o la de hoy). Permite registrar inventario de días anteriores.
+          if ((v.stock ?? 0) > 0) {
+            const varId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
+            getDb().run(
+              `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo, fecha)
+               VALUES (?, 'entrada', ?, ?, COALESCE(?, datetime('now','localtime')))`,
+              [varId, v.stock, 'Stock inicial', fechaMov]
+            )
+          }
         }
       }
     })
+    programarResumen() // refresca inventario del Panel del Dueño
     return productoId
   })
 
@@ -334,6 +356,7 @@ export function registerHandlers(): void {
         [varianteId, delta, motivo || 'Ajuste manual']
       )
     })
+    programarResumen() // refresca inventario del Panel del Dueño
     return { ok: true, delta }
   })
 
@@ -383,17 +406,24 @@ export function registerHandlers(): void {
   // ---------- VENTAS ----------
   ipcMain.handle('ventas:crear', (_e, venta: any) => registrarVenta(venta))
 
+  // Registro de una venta de un día anterior (carga histórica). No depende de la
+  // caja abierta ni afecta el arqueo actual; usa la fecha indicada y descuenta stock.
+  ipcMain.handle('ventas:crearAnterior', (_e, venta: any) => registrarVentaAnterior(venta))
+
   ipcMain.handle('ventas:get', (_e, id: number) => obtenerVenta(id))
 
-  ipcMain.handle('ventas:list', (_e, limit = 100) =>
-    query(
+  ipcMain.handle('ventas:list', (_e, limit = 100, dia?: string) => {
+    const usarDia = typeof dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dia)
+    return query(
       `SELECT v.*, c.nombre as cliente_nombre,
+         (SELECT GROUP_CONCAT(producto_nombre, ', ') FROM venta_items WHERE venta_id = v.id) as productos,
          COALESCE((SELECT SUM(d.total) FROM devoluciones d WHERE d.venta_id = v.id), 0) as devuelto
        FROM ventas v LEFT JOIN clientes c ON c.id = v.cliente_id
+       ${usarDia ? 'WHERE date(v.fecha) = ?' : ''}
        ORDER BY v.id DESC LIMIT ?`,
-      [limit]
+      usarDia ? [dia, limit] : [limit]
     )
-  )
+  })
 
   // Emitir factura electronica DIAN para una venta existente
   ipcMain.handle('dian:probar', () => probarConexion())
@@ -805,6 +835,7 @@ export function registerHandlers(): void {
         }
       }
     })
+    programarResumen() // refresca el Panel del Dueño (neto/utilidad del turno)
     return queryOne('SELECT * FROM devoluciones WHERE id = ?', [devolucionId])
   })
 
@@ -839,14 +870,21 @@ export function registerHandlers(): void {
   ipcMain.handle('compras:crear', (_e, compra: any) => {
     let compraId = 0
     let numero = ''
+    // Fecha opcional (YYYY-MM-DD) para cargar inventario histórico con fecha atrás.
+    // Si no viene o es inválida, se usa la fecha/hora actual.
+    const fecha =
+      typeof compra.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(compra.fecha)
+        ? compra.fecha + ' 12:00:00'
+        : null
     transaction(() => {
       const ultimo = queryOne<{ n: number }>('SELECT COUNT(*) as n FROM compras')
       numero = 'C' + String((ultimo?.n ?? 0) + 1).padStart(6, '0')
       const total = (compra.items as any[]).reduce((s, it) => s + it.costo_unitario * it.cantidad, 0)
 
       getDb().run(
-        'INSERT INTO compras (numero, proveedor_id, usuario_id, total, notas) VALUES (?,?,?,?,?)',
-        [numero, compra.proveedor_id ?? null, compra.usuario_id ?? null, total, compra.notas ?? null]
+        `INSERT INTO compras (numero, proveedor_id, usuario_id, fecha, total, notas)
+         VALUES (?,?,?, COALESCE(?, datetime('now','localtime')), ?, ?)`,
+        [numero, compra.proveedor_id ?? null, compra.usuario_id ?? null, fecha, total, compra.notas ?? null]
       )
       compraId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
 
@@ -865,11 +903,12 @@ export function registerHandlers(): void {
             it.costo_unitario * it.cantidad
           ]
         )
-        // aumentar stock y registrar movimiento
+        // aumentar stock y registrar movimiento (con la misma fecha de la entrada)
         getDb().run('UPDATE variantes SET stock = stock + ? WHERE id = ?', [it.cantidad, it.variante_id])
         getDb().run(
-          "INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo) VALUES (?, 'entrada', ?, ?)",
-          [it.variante_id, it.cantidad, 'Compra ' + numero]
+          `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo, fecha)
+           VALUES (?, 'entrada', ?, ?, COALESCE(?, datetime('now','localtime')))`,
+          [it.variante_id, it.cantidad, 'Compra ' + numero, fecha]
         )
         // actualizar el costo del producto al último costo de compra
         getDb().run(
@@ -878,7 +917,76 @@ export function registerHandlers(): void {
         )
       }
     })
+    programarResumen() // refresca inventario del Panel del Dueño
     return queryOne('SELECT * FROM compras WHERE id = ?', [compraId])
+  })
+
+  // Borrar una entrada: revierte el stock que sumó y limpia su kardex.
+  ipcMain.handle('compras:eliminar', (_e, id: number) => {
+    const compra = queryOne<any>('SELECT * FROM compras WHERE id = ?', [id])
+    if (!compra) throw new Error('Compra no encontrada')
+    transaction(() => {
+      const items = query<any>('SELECT * FROM compra_items WHERE compra_id = ?', [id])
+      for (const it of items) {
+        if (it.variante_id) {
+          getDb().run('UPDATE variantes SET stock = stock - ? WHERE id = ?', [it.cantidad, it.variante_id])
+        }
+      }
+      getDb().run('DELETE FROM movimientos_inventario WHERE motivo = ?', ['Compra ' + compra.numero])
+      getDb().run('DELETE FROM compra_items WHERE compra_id = ?', [id])
+      getDb().run('DELETE FROM compras WHERE id = ?', [id])
+    })
+    programarResumen() // refresca inventario del Panel del Dueño
+    return { ok: true }
+  })
+
+  // Editar una entrada: revierte la anterior y aplica los nuevos productos/cantidades.
+  ipcMain.handle('compras:actualizar', (_e, id: number, compra: any) => {
+    const actual = queryOne<any>('SELECT * FROM compras WHERE id = ?', [id])
+    if (!actual) throw new Error('Compra no encontrada')
+    const numero = actual.numero as string
+    const fecha =
+      typeof compra.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(compra.fecha)
+        ? compra.fecha + ' 12:00:00'
+        : null
+    transaction(() => {
+      // 1) revertir la entrada anterior (stock + kardex + items)
+      const viejos = query<any>('SELECT * FROM compra_items WHERE compra_id = ?', [id])
+      for (const it of viejos) {
+        if (it.variante_id) getDb().run('UPDATE variantes SET stock = stock - ? WHERE id = ?', [it.cantidad, it.variante_id])
+      }
+      getDb().run('DELETE FROM movimientos_inventario WHERE motivo = ?', ['Compra ' + numero])
+      getDb().run('DELETE FROM compra_items WHERE compra_id = ?', [id])
+
+      // 2) aplicar los nuevos items
+      const total = (compra.items as any[]).reduce((s, it) => s + it.costo_unitario * it.cantidad, 0)
+      getDb().run('UPDATE compras SET proveedor_id=?, fecha=COALESCE(?, fecha), total=?, notas=? WHERE id=?', [
+        compra.proveedor_id ?? null,
+        fecha,
+        total,
+        compra.notas ?? null,
+        id
+      ])
+      for (const it of compra.items as any[]) {
+        getDb().run(
+          `INSERT INTO compra_items (compra_id, variante_id, producto_nombre, talla, color, cantidad, costo_unitario, subtotal)
+           VALUES (?,?,?,?,?,?,?,?)`,
+          [id, it.variante_id, it.producto_nombre, it.talla ?? null, it.color ?? null, it.cantidad, it.costo_unitario, it.costo_unitario * it.cantidad]
+        )
+        getDb().run('UPDATE variantes SET stock = stock + ? WHERE id = ?', [it.cantidad, it.variante_id])
+        getDb().run(
+          `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo, fecha)
+           VALUES (?, 'entrada', ?, ?, COALESCE(?, datetime('now','localtime')))`,
+          [it.variante_id, it.cantidad, 'Compra ' + numero, fecha]
+        )
+        getDb().run('UPDATE productos SET precio_compra = ? WHERE id = (SELECT producto_id FROM variantes WHERE id = ?)', [
+          it.costo_unitario,
+          it.variante_id
+        ])
+      }
+    })
+    programarResumen() // refresca inventario del Panel del Dueño
+    return queryOne('SELECT * FROM compras WHERE id = ?', [id])
   })
 
   ipcMain.handle('compras:list', (_e, limit = 100) =>
@@ -902,7 +1010,7 @@ export function registerHandlers(): void {
   // ---------- GASTOS / EGRESOS DE CAJA ----------
   ipcMain.handle('gastos:crear', (_e, data: any) => {
     const sesion = sesionAbierta() as any
-    return insert(
+    const id = insert(
       'INSERT INTO gastos (sesion_id, usuario_id, concepto, categoria, metodo, monto) VALUES (?,?,?,?,?,?)',
       [
         sesion ? sesion.id : null,
@@ -913,6 +1021,8 @@ export function registerHandlers(): void {
         data.monto
       ]
     )
+    programarResumen() // refresca el Panel del Dueño (gastos del turno)
+    return id
   })
   ipcMain.handle('gastos:list', (_e, sesionId?: number) =>
     sesionId
@@ -1179,6 +1289,87 @@ function registrarVenta(venta: any): any {
     }
   })
   // Actualiza el Portal del Dueño casi en vivo (agrupado, en segundo plano).
+  programarResumen()
+  return obtenerVenta(ventaId)
+}
+
+/**
+ * Registra una venta de un DÍA ANTERIOR (carga histórica de ventas de antes de
+ * usar el POS). A diferencia de una venta normal:
+ *  - NO exige caja abierta y NO se liga a la sesión actual (sesion_id = null),
+ *    así no altera el arqueo ni el dashboard de hoy.
+ *  - Usa la fecha indicada (para el historial y los reportes por fecha).
+ *  - Descuenta el stock y deja el movimiento del kardex con esa misma fecha.
+ */
+function registrarVentaAnterior(venta: any): any {
+  const fecha =
+    typeof venta.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(venta.fecha)
+      ? venta.fecha + ' 12:00:00'
+      : null
+  if (!fecha) throw new Error('FECHA_INVALIDA')
+  if (!Array.isArray(venta.items) || venta.items.length === 0) throw new Error('SIN_ITEMS')
+
+  let ventaId = 0
+  let numero = ''
+  transaction(() => {
+    const ultimo = queryOne<{ n: number }>('SELECT COUNT(*) as n FROM ventas')
+    numero = 'V' + String((ultimo?.n ?? 0) + 1).padStart(6, '0')
+
+    getDb().run(
+      `INSERT INTO ventas (numero, fecha, cliente_id, usuario_id, sesion_id, subtotal, descuento, iva, total,
+         metodo_pago, pago_recibido, cambio, propina, estado)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
+      [
+        numero,
+        fecha,
+        venta.cliente_id ?? null,
+        venta.usuario_id ?? null,
+        null,
+        venta.subtotal ?? venta.total,
+        venta.descuento ?? 0,
+        venta.iva ?? 0,
+        venta.total,
+        venta.metodo_pago ?? 'efectivo',
+        venta.total,
+        0,
+        0
+      ]
+    )
+    ventaId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
+
+    getDb().run('INSERT INTO venta_pagos (venta_id, metodo, monto) VALUES (?,?,?)', [
+      ventaId,
+      venta.metodo_pago ?? 'efectivo',
+      venta.total
+    ])
+
+    for (const item of venta.items as any[]) {
+      getDb().run(
+        `INSERT INTO venta_items (venta_id, variante_id, producto_nombre, talla, color,
+           cantidad, precio_unitario, iva_porcentaje, subtotal)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [
+          ventaId,
+          item.variante_id ?? null,
+          item.producto_nombre,
+          item.talla ?? null,
+          item.color ?? null,
+          item.cantidad,
+          item.precio_unitario,
+          item.iva_porcentaje ?? 0,
+          item.subtotal ?? item.precio_unitario * item.cantidad
+        ]
+      )
+      if (item.variante_id) {
+        getDb().run('UPDATE variantes SET stock = stock - ? WHERE id = ?', [item.cantidad, item.variante_id])
+        getDb().run(
+          `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo, fecha)
+           VALUES (?, 'venta', ?, ?, ?)`,
+          [item.variante_id, -item.cantidad, 'Venta ' + numero + ' (registro anterior)', fecha]
+        )
+      }
+    }
+  })
   programarResumen()
   return obtenerVenta(ventaId)
 }

@@ -26,7 +26,22 @@ const CAMPOS: Record<string, string[]> = {
   talla: ['talla', 'size'],
   color: ['color'],
   stock: ['stock', 'cantidad', 'existencia', 'inventario'],
-  stock_minimo: ['stockminimo', 'minimo', 'stockmin']
+  stock_minimo: ['stockminimo', 'minimo', 'stockmin'],
+  fecha: ['fecha', 'date', 'fechaentrada', 'diaentrada']
+}
+
+/** Convierte una celda de fecha (Date de Excel, YYYY-MM-DD o DD/MM/YYYY) a 'YYYY-MM-DD', o null. */
+function parseFecha(v: any): string | null {
+  if (v == null || v === '') return null
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    return new Date(v.getTime() - v.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+  }
+  const s = String(v).trim()
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/) // DD/MM/YYYY
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  return null
 }
 
 function normalizar(s: string): string {
@@ -65,7 +80,7 @@ export interface ProductoImportado {
   precio_compra: number
   precio_venta: number
   iva_porcentaje: number
-  variantes: { talla: string | null; color: string | null; codigo_barras: string | null; stock: number; stock_minimo: number }[]
+  variantes: { talla: string | null; color: string | null; codigo_barras: string | null; stock: number; stock_minimo: number; fecha: string | null }[]
 }
 
 /** Abre el diálogo, lee el archivo y devuelve los productos listos + errores. */
@@ -85,7 +100,7 @@ export async function leerImportacion(): Promise<{
 
   let filas: any[]
   try {
-    const wb = XLSX.readFile(filePaths[0])
+    const wb = XLSX.readFile(filePaths[0], { cellDates: true })
     const hoja = wb.Sheets[wb.SheetNames[0]]
     filas = XLSX.utils.sheet_to_json(hoja, { defval: '' })
   } catch (e: any) {
@@ -111,6 +126,8 @@ export async function leerImportacion(): Promise<{
       errores.push(`Fila ${i + 2}: sin nombre, se omitió.`)
       return
     }
+    // Ignorar las filas de ejemplo de la plantilla aunque el usuario olvide borrarlas.
+    if (/^ejemplo\s*\(borra esta fila\)/i.test(nombre)) return
     const clave = nombre.toLowerCase()
     if (!porNombre[clave]) {
       porNombre[clave] = {
@@ -129,7 +146,8 @@ export async function leerImportacion(): Promise<{
       color: String(r.color ?? '').trim() || null,
       codigo_barras: String(r.codigo_barras ?? '').trim() || null,
       stock: num(r.stock),
-      stock_minimo: r.stock_minimo === '' || r.stock_minimo == null ? 1 : num(r.stock_minimo)
+      stock_minimo: r.stock_minimo === '' || r.stock_minimo == null ? 1 : num(r.stock_minimo),
+      fecha: parseFecha(r.fecha)
     })
     totalVariantes++
   })
@@ -141,14 +159,18 @@ export async function leerImportacion(): Promise<{
 export function guardarImportacion(productos: ProductoImportado[]): {
   ok: boolean
   creados: number
+  reactivados: number
   variantes: number
   omitidos: number
   categoriasNuevas: number
+  skusOmitidos: string[]
 } {
   let creados = 0
+  let reactivados = 0
   let variantes = 0
   let omitidos = 0
   let categoriasNuevas = 0
+  const skusOmitidos: string[] = []
   const cacheCat: Record<string, number> = {}
 
   function categoriaId(nombre: string | null): number | null {
@@ -167,17 +189,54 @@ export function guardarImportacion(productos: ProductoImportado[]): {
     return id
   }
 
+  // Inserta las variantes de un producto y su movimiento de stock inicial (con fecha).
+  function insertarVariantes(productoId: number, vars: ProductoImportado['variantes']): void {
+    for (const v of vars) {
+      getDb().run(
+        'INSERT INTO variantes (producto_id, talla, color, codigo_barras, stock, stock_minimo) VALUES (?,?,?,?,?,?)',
+        [productoId, v.talla, v.color, v.codigo_barras, v.stock, v.stock_minimo]
+      )
+      const varId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
+      if (v.stock > 0) {
+        getDb().run(
+          `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo, fecha)
+           VALUES (?, 'entrada', ?, ?, COALESCE(?, datetime('now','localtime')))`,
+          [varId, v.stock, 'Carga inicial (importación)', v.fecha ? v.fecha + ' 12:00:00' : null]
+        )
+      }
+      variantes++
+    }
+  }
+
   transaction(() => {
     for (const p of productos) {
-      // Evitar duplicar por SKU
+      const catId = categoriaId(p.categoria)
+      const vars = p.variantes.length
+        ? p.variantes
+        : [{ talla: null, color: null, codigo_barras: null, stock: 0, stock_minimo: 1, fecha: null }]
+
       if (p.sku) {
-        const dup = queryOne<{ id: number }>('SELECT id FROM productos WHERE sku = ?', [p.sku])
+        const dup = queryOne<{ id: number; activo: number }>('SELECT id, activo FROM productos WHERE sku = ?', [p.sku])
         if (dup) {
-          omitidos++
+          if (dup.activo === 1) {
+            // Ya existe un producto ACTIVO con ese SKU: se omite para no duplicarlo.
+            omitidos++
+            if (!skusOmitidos.includes(p.sku)) skusOmitidos.push(p.sku)
+            continue
+          }
+          // El SKU es de un producto BORRADO: se revive y actualiza (no bloquea).
+          getDb().run(
+            `UPDATE productos SET nombre=?, categoria_id=?, marca=?, precio_compra=?, precio_venta=?,
+               iva_porcentaje=?, activo=1 WHERE id=?`,
+            [p.nombre, catId, p.marca, p.precio_compra, p.precio_venta, p.iva_porcentaje, dup.id]
+          )
+          getDb().run('DELETE FROM variantes WHERE producto_id = ?', [dup.id])
+          insertarVariantes(dup.id, vars)
+          reactivados++
           continue
         }
       }
-      const catId = categoriaId(p.categoria)
+
       getDb().run(
         `INSERT INTO productos (sku, nombre, categoria_id, marca, precio_compra, precio_venta, iva_porcentaje)
          VALUES (?,?,?,?,?,?,?)`,
@@ -185,18 +244,11 @@ export function guardarImportacion(productos: ProductoImportado[]): {
       )
       const productoId = (queryOne<{ id: number }>('SELECT last_insert_rowid() as id') as any).id
       creados++
-      const vars = p.variantes.length ? p.variantes : [{ talla: null, color: null, codigo_barras: null, stock: 0, stock_minimo: 1 }]
-      for (const v of vars) {
-        getDb().run(
-          'INSERT INTO variantes (producto_id, talla, color, codigo_barras, stock, stock_minimo) VALUES (?,?,?,?,?,?)',
-          [productoId, v.talla, v.color, v.codigo_barras, v.stock, v.stock_minimo]
-        )
-        variantes++
-      }
+      insertarVariantes(productoId, vars)
     }
   })
   persist()
-  return { ok: true, creados, variantes, omitidos, categoriasNuevas }
+  return { ok: true, creados, reactivados, variantes, omitidos, categoriasNuevas, skusOmitidos }
 }
 
 /** Genera y guarda una plantilla .xlsx con las columnas y ejemplos según el tipo de negocio. */
@@ -207,18 +259,18 @@ export async function generarPlantilla(): Promise<{ ok: boolean; ruta?: string }
   let filas: any[]
   if (tipo === 'bar' || tipo === 'restaurante') {
     filas = [
-      { nombre: EJ + 'Cerveza', categoria: 'Bebidas', marca: '', sku: 'BEB-001', precio_compra: 2500, precio_venta: 4000, iva: 19, codigo_barras: '', talla: '', color: '', stock: 48, stock_minimo: 12 },
-      { nombre: EJ + 'Picada', categoria: 'Comida', marca: '', sku: 'COM-001', precio_compra: 15000, precio_venta: 30000, iva: 8, codigo_barras: '', talla: '', color: '', stock: 0, stock_minimo: 0 }
+      { nombre: EJ + 'Cerveza', categoria: 'Bebidas', marca: '', sku: 'BEB-001', precio_compra: 2500, precio_venta: 4000, iva: 19, codigo_barras: '', talla: '', color: '', stock: 48, stock_minimo: 12, fecha: '2025-12-01' },
+      { nombre: EJ + 'Picada', categoria: 'Comida', marca: '', sku: 'COM-001', precio_compra: 15000, precio_venta: 30000, iva: 8, codigo_barras: '', talla: '', color: '', stock: 0, stock_minimo: 0, fecha: '' }
     ]
   } else if (tipo === 'ropa') {
     // Mismo nombre en 2 filas con distinta talla/color => un producto con 2 variantes
     filas = [
-      { nombre: EJ + 'Camiseta', categoria: 'Ropa', marca: 'Genérica', sku: 'CAM-001', precio_compra: 12000, precio_venta: 25000, iva: 19, codigo_barras: '7700000000017', talla: 'M', color: 'Negro', stock: 10, stock_minimo: 2 },
-      { nombre: EJ + 'Camiseta', categoria: 'Ropa', marca: 'Genérica', sku: 'CAM-001', precio_compra: 12000, precio_venta: 25000, iva: 19, codigo_barras: '7700000000024', talla: 'L', color: 'Blanco', stock: 8, stock_minimo: 2 }
+      { nombre: EJ + 'Camiseta', categoria: 'Ropa', marca: 'Genérica', sku: 'CAM-001', precio_compra: 12000, precio_venta: 25000, iva: 19, codigo_barras: '7700000000017', talla: 'M', color: 'Negro', stock: 10, stock_minimo: 2, fecha: '2025-12-01' },
+      { nombre: EJ + 'Camiseta', categoria: 'Ropa', marca: 'Genérica', sku: 'CAM-001', precio_compra: 12000, precio_venta: 25000, iva: 19, codigo_barras: '7700000000024', talla: 'L', color: 'Blanco', stock: 8, stock_minimo: 2, fecha: '2025-12-01' }
     ]
   } else {
     filas = [
-      { nombre: EJ + 'Producto 1', categoria: 'General', marca: '', sku: 'PRD-001', precio_compra: 5000, precio_venta: 9000, iva: 19, codigo_barras: '', talla: '', color: '', stock: 20, stock_minimo: 5 }
+      { nombre: EJ + 'Producto 1', categoria: 'General', marca: '', sku: 'PRD-001', precio_compra: 5000, precio_venta: 9000, iva: 19, codigo_barras: '', talla: '', color: '', stock: 20, stock_minimo: 5, fecha: '2025-12-01' }
     ]
   }
   // Sin DIAN no se maneja IVA: quitar esa columna de la plantilla

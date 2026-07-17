@@ -118,11 +118,6 @@ export default function Reportes(): JSX.Element {
         }}
       >
         <div className="stat-card">
-          <div className="stat-label">Ventas brutas</div>
-          <div className="stat-value">{cop(t?.total_vendido)}</div>
-          <div className="muted" style={{ fontSize: 12 }}>{t?.num_ventas ?? 0} ventas</div>
-        </div>
-        <div className="stat-card">
           <div className="stat-label">Devoluciones</div>
           <div className="stat-value" style={{ color: 'var(--red)' }}>
             −{cop(data?.devoluciones?.total)}
@@ -134,7 +129,9 @@ export default function Reportes(): JSX.Element {
           <div className="stat-value" style={{ color: 'var(--green)' }}>
             {cop(data?.neto)}
           </div>
-          {dianOn && <div className="muted" style={{ fontSize: 12 }}>IVA: {cop(t?.total_iva)}</div>}
+          <div className="muted" style={{ fontSize: 12 }}>
+            {t?.num_ventas ?? 0} ventas{dianOn ? ` · IVA ${cop(t?.total_iva)}` : ''}
+          </div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Utilidad estimada</div>
@@ -161,16 +158,6 @@ export default function Reportes(): JSX.Element {
             −{cop(data?.gastos?.total)}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>{data?.gastos?.n ?? 0} egreso(s)</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Ganancia neta (− gastos)</div>
-          <div
-            className="stat-value"
-            style={{ color: (data?.gananciaNeta ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}
-          >
-            {cop(data?.gananciaNeta)}
-          </div>
-          <div className="muted" style={{ fontSize: 12 }}>utilidad − gastos</div>
         </div>
         {fiadoOn && (
           <div className="stat-card">
@@ -215,36 +202,6 @@ export default function Reportes(): JSX.Element {
           </table>
         </div>
 
-        <div className="card" style={{ flex: 1 }}>
-          <h3 className="section-title">
-            <Icon name="card" size={18} /> Ventas por método de pago
-          </h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Método</th>
-                <th className="text-right">Ventas</th>
-                <th className="text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.porMetodo ?? []).map((m: any, i: number) => (
-                <tr key={i}>
-                  <td style={{ textTransform: 'capitalize' }}>{m.metodo_pago}</td>
-                  <td className="text-right">{m.ventas}</td>
-                  <td className="text-right">{cop(m.total)}</td>
-                </tr>
-              ))}
-              {(data?.porMetodo ?? []).length === 0 && (
-                <tr>
-                  <td colSpan={3} className="muted">
-                    Sin datos.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
       </div>
 
       <div className="card" style={{ marginTop: 20 }}>

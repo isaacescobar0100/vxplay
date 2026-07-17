@@ -38,6 +38,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null)
   const [dianOn, setDianOn] = useState(false)
   const [mostrarPrecios, setMostrarPrecios] = useState(false)
+  const [catSel, setCatSel] = useState<string>('')
   const codigoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -53,8 +54,15 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
     setDianOn(cfg.dian_habilitado === '1')
   }
 
-  const filtrados = productos.filter((p) =>
-    p.nombre.toLowerCase().includes(busqueda.toLowerCase())
+  // Categorías disponibles (a partir de los productos cargados) para filtrar rápido
+  const categorias = Array.from(
+    new Set(productos.map((p: any) => p.categoria).filter((c) => c && String(c).trim()))
+  ).sort() as string[]
+
+  const filtrados = productos.filter(
+    (p) =>
+      p.nombre.toLowerCase().includes(busqueda.toLowerCase()) &&
+      (!catSel || (p as any).categoria === catSel)
   )
 
   function agregarVariante(p: Producto, v: Variante): void {
@@ -207,9 +215,33 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
           </div>
         </div>
 
+        {categorias.length > 0 && (
+          <div className="cat-chips">
+            <button
+              type="button"
+              className={'chip-cat' + (catSel === '' ? ' active' : '')}
+              onClick={() => setCatSel('')}
+            >
+              Todas
+            </button>
+            {categorias.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={'chip-cat' + (catSel === c ? ' active' : '')}
+                onClick={() => setCatSel(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
+
         {filtrados.length === 0 ? (
           <div className="card muted">
-            No hay productos. Agrega productos en la sección <b>Inventario</b>.
+            {catSel || busqueda ? 'No hay productos que coincidan.' : (
+              <>No hay productos. Agrega productos en la sección <b>Inventario</b>.</>
+            )}
           </div>
         ) : (
           <div className="prod-grid">
@@ -448,6 +480,7 @@ export function Checkout({
 
   // Descuento y pago mixto
   const [descuento, setDescuento] = useState<number>(0)
+  const [descPct, setDescPct] = useState<number>(0)
   const [mixto, setMixto] = useState(false)
   const [pagoEfectivo, setPagoEfectivo] = useState<number>(0)
   const [pagoTarjeta, setPagoTarjeta] = useState<number>(0)
@@ -571,16 +604,33 @@ export function Checkout({
       }))
     }
 
-    const venta: any = onCrear ? await onCrear(payload) : await window.api.ventasCrear(payload)
+    // 1) Registrar la venta. Si falla, se avisa y se libera el botón (no se pega).
+    let venta: any
+    try {
+      venta = onCrear ? await onCrear(payload) : await window.api.ventasCrear(payload)
+    } catch (e: any) {
+      setProcesando(false)
+      alert('No se pudo registrar la venta:\n' + (e?.message ?? e) + '\n\nRevisa e intenta de nuevo.')
+      return
+    }
 
+    // 2) DIAN (opcional, no bloquea la venta ya registrada).
     if (facturarDian) {
-      const r: any = await window.api.facturarDian(venta.id)
-      if (r.estado === 'rechazada' || r.estado === 'error') {
-        alert('Factura DIAN: ' + r.mensaje)
+      try {
+        const r: any = await window.api.facturarDian(venta.id)
+        if (r.estado === 'rechazada' || r.estado === 'error') alert('Factura DIAN: ' + r.mensaje)
+      } catch {
+        alert('La venta quedó registrada, pero la factura DIAN falló. Puedes emitirla luego desde Ventas.')
       }
     }
 
-    await window.api.imprimirTicket(venta.id)
+    // 3) Imprimir (no bloquea: si la impresora falla, la venta YA quedó guardada).
+    try {
+      await window.api.imprimirTicket(venta.id)
+    } catch {
+      alert('La venta se registró, pero no se pudo imprimir el tiquete. Puedes reimprimir desde Ventas.')
+    }
+
     setProcesando(false)
     onDone()
   }
@@ -713,15 +763,38 @@ export function Checkout({
             <div className="row" style={{ gap: 6 }}>
               <input
                 type="number"
+                placeholder="$ en pesos"
                 value={descuento || ''}
                 min={0}
                 max={total}
-                onChange={(e) => setDescuento(Math.min(total, Math.max(0, Number(e.target.value))))}
+                onChange={(e) => {
+                  setDescuento(Math.min(total, Math.max(0, Number(e.target.value))))
+                  setDescPct(0)
+                }}
               />
-              <button type="button" className="btn-sm" onClick={() => setDescuento(Math.round(total * 0.1))}>
-                10%
-              </button>
-              <button type="button" className="btn-sm" onClick={() => setDescuento(0)}>
+              <input
+                type="number"
+                placeholder="%"
+                title="Descuento en porcentaje (se aplica automáticamente)"
+                value={descPct || ''}
+                min={0}
+                max={100}
+                style={{ maxWidth: 80 }}
+                onChange={(e) => {
+                  const pct = Math.min(100, Math.max(0, Number(e.target.value)))
+                  setDescPct(pct)
+                  setDescuento(Math.round((total * pct) / 100))
+                }}
+              />
+              <button
+                type="button"
+                className="btn-sm"
+                title="Quitar descuento"
+                onClick={() => {
+                  setDescuento(0)
+                  setDescPct(0)
+                }}
+              >
                 ✕
               </button>
             </div>
@@ -756,7 +829,7 @@ export function Checkout({
           <div style={{ marginTop: 12 }}>
             <label>Efectivo recibido (toca los billetes que entregó el cliente)</label>
             <div className="billetes">
-              {[1000, 2000, 5000, 10000, 20000, 50000, 100000].map((b) => (
+              {[50000, 100000].map((b) => (
                 <button key={b} type="button" onClick={() => setRecibido((r) => r + b)}>
                   +{cop(b)}
                 </button>

@@ -73,14 +73,6 @@ export default function Inicio({
   const top = (semana?.topProductos ?? []).slice(0, 5)
   const maxTop = Math.max(1, ...top.map((p: any) => p.unidades))
 
-  const metodos = semana?.porMetodo ?? []
-  const totalMetodos = Math.max(1, metodos.reduce((s: number, m: any) => s + m.total, 0))
-  const colorMetodo: Record<string, string> = {
-    efectivo: 'var(--green)',
-    tarjeta: 'var(--primary)',
-    transferencia: 'var(--amber)'
-  }
-
   return (
     <div>
       <div className="page-title">Hola, {usuario.nombre} 👋</div>
@@ -180,9 +172,6 @@ export default function Inicio({
             </div>
             <div className="muted" style={{ fontSize: 12 }}>
               {t?.num_ventas ?? 0} ventas
-              {data?.devoluciones?.total > 0 && (
-                <> · bruto {cop(t?.total_vendido)} − devol. {cop(data?.devoluciones?.total)}</>
-              )}
             </div>
           </div>
         )}
@@ -281,71 +270,6 @@ export default function Inicio({
           )}
         </div>
 
-        {/* Métodos de pago */}
-        <div className="card" style={{ flex: 1 }}>
-          <h3 className="section-title">
-            <Icon name="card" size={18} /> Ventas por método (7 días)
-          </h3>
-          {metodos.length === 0 ? (
-            <p className="muted">Sin ventas esta semana.</p>
-          ) : (
-            <div className="hbars">
-              {metodos.map((m: any, i: number) => (
-                <div className="hbar-row" key={i}>
-                  <div className="hbar-name" style={{ textTransform: 'capitalize' }}>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: 10,
-                        height: 10,
-                        borderRadius: 3,
-                        background: colorMetodo[m.metodo_pago] ?? 'var(--muted)',
-                        marginRight: 6
-                      }}
-                    />
-                    {m.metodo_pago}
-                  </div>
-                  <div className="hbar-track">
-                    <div
-                      className="hbar-fill"
-                      style={{
-                        width: `${(m.total / totalMetodos) * 100}%`,
-                        background: colorMetodo[m.metodo_pago] ?? 'var(--muted)'
-                      }}
-                    />
-                  </div>
-                  <div className="hbar-val">{cop(m.total)}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Accesos rápidos */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <h3 className="section-title">Accesos rápidos</h3>
-        <div className="row" style={{ flexWrap: 'wrap' }}>
-          <button className="btn-green btn-icon" onClick={() => irA('ventas')}>
-            <Icon name="cart" size={16} /> Vender
-          </button>
-          <button className="btn-icon" onClick={() => irA('historial')}>
-            <Icon name="receipt" size={16} /> Ventas
-          </button>
-          {usuario.rol === 'admin' && (
-            <>
-              <button className="btn-icon" onClick={() => irA('inventario')}>
-                <Icon name="shirt" size={16} /> Inventario
-              </button>
-              <button className="btn-icon" onClick={() => irA('compras')}>
-                <Icon name="box" size={16} /> Compras
-              </button>
-              <button className="btn-icon" onClick={() => irA('reportes')}>
-                <Icon name="chart" size={16} /> Reportes
-              </button>
-            </>
-          )}
-        </div>
       </div>
 
       {/* Stock bajo */}

@@ -177,19 +177,36 @@ export async function imprimirTicket(
   )
 
   return new Promise((resolve) => {
-    win.webContents.print(
-      {
-        silent: modo === 'auto',
-        printBackground: true,
-        deviceName,
-        margins: { marginType: 'none' }
-      },
-      (success, failureReason) => {
-        win.close()
-        if (success) resolve({ ok: true })
-        else resolve({ ok: false, mensaje: failureReason })
+    let terminado = false
+    const cerrar = (r: { ok: boolean; mensaje?: string }): void => {
+      if (terminado) return
+      terminado = true
+      clearTimeout(t)
+      try {
+        if (!win.isDestroyed()) win.close()
+      } catch {
+        /* ignorar */
       }
+      resolve(r)
+    }
+    // Red de seguridad: si la impresora no responde, no dejamos la app colgada.
+    const t = setTimeout(
+      () => cerrar({ ok: false, mensaje: 'La impresora no respondió (se canceló la impresión).' }),
+      20000
     )
+    try {
+      win.webContents.print(
+        {
+          silent: modo === 'auto',
+          printBackground: true,
+          deviceName,
+          margins: { marginType: 'none' }
+        },
+        (success, failureReason) => cerrar(success ? { ok: true } : { ok: false, mensaje: failureReason })
+      )
+    } catch (e: any) {
+      cerrar({ ok: false, mensaje: String(e?.message ?? e) })
+    }
   })
 }
 
@@ -274,13 +291,30 @@ export async function imprimirPrecuenta(
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(generarPrecuentaHtml(datos, cfg, false)))
   return new Promise((resolve) => {
-    win.webContents.print(
-      { silent: modo === 'auto', printBackground: true, deviceName, margins: { marginType: 'none' } },
-      (success, failureReason) => {
-        win.close()
-        resolve(success ? { ok: true } : { ok: false, mensaje: failureReason })
+    let terminado = false
+    const cerrar = (r: { ok: boolean; mensaje?: string }): void => {
+      if (terminado) return
+      terminado = true
+      clearTimeout(t)
+      try {
+        if (!win.isDestroyed()) win.close()
+      } catch {
+        /* ignorar */
       }
+      resolve(r)
+    }
+    const t = setTimeout(
+      () => cerrar({ ok: false, mensaje: 'La impresora no respondió (se canceló la impresión).' }),
+      20000
     )
+    try {
+      win.webContents.print(
+        { silent: modo === 'auto', printBackground: true, deviceName, margins: { marginType: 'none' } },
+        (success, failureReason) => cerrar(success ? { ok: true } : { ok: false, mensaje: failureReason })
+      )
+    } catch (e: any) {
+      cerrar({ ok: false, mensaje: String(e?.message ?? e) })
+    }
   })
 }
 
@@ -368,13 +402,30 @@ export async function imprimirCierre(
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(generarCierreHtml(d, cfg, false)))
   return new Promise((resolve) => {
-    win.webContents.print(
-      { silent: modo === 'auto', printBackground: true, deviceName, margins: { marginType: 'none' } },
-      (success, failureReason) => {
-        win.close()
-        resolve(success ? { ok: true } : { ok: false, mensaje: failureReason })
+    let terminado = false
+    const cerrar = (r: { ok: boolean; mensaje?: string }): void => {
+      if (terminado) return
+      terminado = true
+      clearTimeout(t)
+      try {
+        if (!win.isDestroyed()) win.close()
+      } catch {
+        /* ignorar */
       }
+      resolve(r)
+    }
+    const t = setTimeout(
+      () => cerrar({ ok: false, mensaje: 'La impresora no respondió (se canceló la impresión).' }),
+      20000
     )
+    try {
+      win.webContents.print(
+        { silent: modo === 'auto', printBackground: true, deviceName, margins: { marginType: 'none' } },
+        (success, failureReason) => cerrar(success ? { ok: true } : { ok: false, mensaje: failureReason })
+      )
+    } catch (e: any) {
+      cerrar({ ok: false, mensaje: String(e?.message ?? e) })
+    }
   })
 }
 

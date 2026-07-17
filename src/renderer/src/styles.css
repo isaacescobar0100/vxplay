@@ -137,6 +137,15 @@ tr:hover td { background: var(--panel-2); }
 .cart-item:hover { background: var(--panel-2); }
 .cart-foot { padding: 16px; border-top: 1px solid var(--border); }
 
+.cat-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip-cat {
+  background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 20px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.chip-cat:hover { color: var(--text); border-color: var(--primary); background: var(--panel); }
+.chip-cat.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
 .prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .prod-card {
   position: relative;
