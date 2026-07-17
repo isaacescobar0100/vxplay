@@ -31,6 +31,7 @@ export default function Inicio({
   const [caja, setCaja] = useState<any | null>(null)
   const [stockBajo, setStockBajo] = useState<any[]>([])
   const [fiadoOn, setFiadoOn] = useState(false)
+  const [tiendaNombre, setTiendaNombre] = useState('')
 
   const cerosResumen = {
     totales: { num_ventas: 0, total_vendido: 0, total_iva: 0 },
@@ -54,7 +55,10 @@ export default function Inicio({
     })()
     window.api.reportesResumen(dias[0].iso, hoy).then(setSemana) // gráfico 7 días (histórico)
     window.api.reportesStockBajo().then((s: any) => setStockBajo(s))
-    window.api.configGetAll().then((c: any) => setFiadoOn(c.fiado_habilitado === '1'))
+    window.api.configGetAll().then((c: any) => {
+      setFiadoOn(c.fiado_habilitado === '1')
+      setTiendaNombre(c.tienda_nombre ?? '')
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -75,7 +79,7 @@ export default function Inicio({
 
   return (
     <div>
-      <div className="page-title">Hola, {usuario.nombre} 👋</div>
+      <div className="page-title">Hola, {tiendaNombre || usuario.nombre}</div>
       <p className="muted" style={{ marginTop: -12, marginBottom: 20 }}>
         {caja ? 'Resumen de la caja actual' : 'Caja cerrada — el resumen empieza al abrir la caja'} ·{' '}
         {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
