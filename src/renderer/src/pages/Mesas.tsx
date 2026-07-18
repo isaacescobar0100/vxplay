@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import type { Usuario } from '../App'
 import { cop, CARTA_BASE_URL } from '../util'
 import Icon from '../components/Icon'
@@ -36,12 +37,12 @@ export default function Mesas({ usuario }: { usuario: Usuario }): JSX.Element {
   }
 
   async function eliminarMesa(m: any): Promise<void> {
-    if (!confirm('¿Eliminar ' + m.nombre + '?')) return
+    if (!(await confirmar('¿Eliminar ' + m.nombre + '?'))) return
     try {
       await window.api.mesasEliminar(m.id)
       cargar()
     } catch (e: any) {
-      alert(e?.message ?? 'No se pudo eliminar')
+      avisar(e?.message ?? 'No se pudo eliminar')
     }
   }
 
@@ -378,7 +379,7 @@ function Comanda({
   async function agregar(p: any): Promise<void> {
     const v = (p.variantes ?? [])[0]
     if (!v) {
-      alert('El producto no tiene variante/stock configurado')
+      avisar('El producto no tiene variante/stock configurado')
       return
     }
     const existe = items.find((i) => i.variante_id === v.id)

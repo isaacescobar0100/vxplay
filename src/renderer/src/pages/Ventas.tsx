@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Usuario } from '../App'
 import { cop } from '../util'
 import Icon from '../components/Icon'
+import { avisar } from '../dialogo'
 
 interface Variante {
   id: number
@@ -67,7 +68,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
 
   function agregarVariante(p: Producto, v: Variante): void {
     if (v.stock <= 0) {
-      alert('Sin stock disponible')
+      avisar('Sin stock disponible')
       return
     }
     const key = 'v' + v.id
@@ -75,7 +76,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
       const existe = prev.find((i) => i.key === key)
       if (existe) {
         if (existe.cantidad >= v.stock) {
-          alert('No hay más stock de esta variante')
+          avisar('No hay más stock de esta variante')
           return prev
         }
         return prev.map((i) => (i.key === key ? { ...i, cantidad: i.cantidad + 1 } : i))
@@ -101,7 +102,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
   function clickProducto(p: Producto): void {
     const conStock = p.variantes.filter((v) => v.stock > 0)
     if (conStock.length === 0) {
-      alert('Producto sin stock')
+      avisar('Producto sin stock')
       return
     }
     if (conStock.length === 1) agregarVariante(p, conStock[0])
@@ -115,7 +116,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
           if (i.key !== key) return i
           const nueva = i.cantidad + delta
           if (nueva > i.stock) {
-            alert('No hay más stock')
+            avisar('No hay más stock')
             return i
           }
           return { ...i, cantidad: nueva }
@@ -134,7 +135,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
     if (!c) return
     const v: any = await window.api.buscarPorCodigo(c)
     if (!v) {
-      alert('Código no encontrado: ' + c)
+      avisar('Código no encontrado: ' + c)
     } else {
       agregarVariante(
         {
@@ -511,7 +512,7 @@ export function Checkout({
 
   async function guardarNuevoCliente(): Promise<void> {
     if (!nuevo.nombre.trim()) {
-      alert('El nombre del cliente es obligatorio')
+      avisar('El nombre del cliente es obligatorio')
       return
     }
     setGuardandoCliente(true)
@@ -547,15 +548,15 @@ export function Checkout({
 
   async function confirmar(): Promise<void> {
     if (!mixto && metodo === 'efectivo' && recibido < pagarTotal) {
-      alert('El monto recibido es menor al total')
+      avisar('El monto recibido es menor al total')
       return
     }
     if (metodo === 'fiado' && !clienteId) {
-      alert('El fiado se registra a nombre de un cliente. Elige (o crea) el cliente que queda debiendo.')
+      avisar('El fiado se registra a nombre de un cliente. Elige (o crea) el cliente que queda debiendo.')
       return
     }
     if (mixto && faltaMixto > 0) {
-      alert('Los pagos no cubren el total. Falta ' + cop(faltaMixto))
+      avisar('Los pagos no cubren el total. Falta ' + cop(faltaMixto))
       return
     }
 
@@ -610,7 +611,7 @@ export function Checkout({
       venta = onCrear ? await onCrear(payload) : await window.api.ventasCrear(payload)
     } catch (e: any) {
       setProcesando(false)
-      alert('No se pudo registrar la venta:\n' + (e?.message ?? e) + '\n\nRevisa e intenta de nuevo.')
+      avisar('No se pudo registrar la venta:\n' + (e?.message ?? e) + '\n\nRevisa e intenta de nuevo.')
       return
     }
 
@@ -618,9 +619,9 @@ export function Checkout({
     if (facturarDian) {
       try {
         const r: any = await window.api.facturarDian(venta.id)
-        if (r.estado === 'rechazada' || r.estado === 'error') alert('Factura DIAN: ' + r.mensaje)
+        if (r.estado === 'rechazada' || r.estado === 'error') avisar('Factura DIAN: ' + r.mensaje)
       } catch {
-        alert('La venta quedó registrada, pero la factura DIAN falló. Puedes emitirla luego desde Ventas.')
+        avisar('La venta quedó registrada, pero la factura DIAN falló. Puedes emitirla luego desde Ventas.')
       }
     }
 
@@ -628,7 +629,7 @@ export function Checkout({
     try {
       await window.api.imprimirTicket(venta.id)
     } catch {
-      alert('La venta se registró, pero no se pudo imprimir el tiquete. Puedes reimprimir desde Ventas.')
+      avisar('La venta se registró, pero no se pudo imprimir el tiquete. Puedes reimprimir desde Ventas.')
     }
 
     setProcesando(false)

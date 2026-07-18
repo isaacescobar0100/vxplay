@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import { cop } from '../util'
 import Icon from '../components/Icon'
 import type { Usuario } from '../App'
@@ -39,9 +40,25 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
 
   async function facturar(id: number): Promise<void> {
     const r: any = await window.api.facturarDian(id)
-    alert('DIAN: ' + (r.mensaje ?? r.estado))
+    avisar('DIAN: ' + (r.mensaje ?? r.estado))
     cargar()
     verDetalle(id)
+  }
+
+  // Borrar una VENTA ANTERIOR (carga histórica) mal cargada. Solo admin y solo
+  // ventas anteriores (sesion_id nulo); las de caja real no muestran este botón.
+  async function borrarAnterior(v: any): Promise<void> {
+    if (
+      !(await confirmar(
+        `¿Borrar la venta anterior ${v.numero} por ${cop(v.total)}?\n\nEs una carga histórica: se repone el stock y se quita del historial. Úsalo solo para corregir cargas mal hechas. No se puede deshacer.`,
+        'Borrar venta anterior'
+      ))
+    ) {
+      return
+    }
+    await window.api.ventasEliminarAnterior(v.id)
+    cargar()
+    avisar('Venta anterior borrada. El stock se repuso.', 'Listo')
   }
 
   function badgeDian(estado: string): JSX.Element {
@@ -100,13 +117,16 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
               <tr key={v.id}>
                 <td>
                   <b>{v.numero}</b>
+                  {v.sesion_id == null && (
+                    <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>· anterior</span>
+                  )}
                   {v.devuelto > 0 && (
                     <span className="badge badge-amber" style={{ marginLeft: 6 }}>
                       ↩ {v.devuelto >= v.total ? 'Devuelto' : 'Dev. parcial'}
                     </span>
                   )}
                 </td>
-                <td className="muted">{v.fecha}</td>
+                <td className="muted">{v.sesion_id == null ? String(v.fecha || '').slice(0, 10) : v.fecha}</td>
                 <td
                   title={v.productos ?? ''}
                   style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -118,10 +138,22 @@ export default function HistorialVentas({ usuario }: { usuario: Usuario }): JSX.
                   <b>{cop(v.total)}</b>
                 </td>
                 {dianOn && <td>{badgeDian(v.dian_estado)}</td>}
-                <td className="text-right">
+                <td className="text-right" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn-sm" onClick={() => verDetalle(v.id)}>
                     Ver
                   </button>
+                  {usuario.rol === 'admin' && v.sesion_id == null && (
+                    <>
+                      {' '}
+                      <button
+                        className="btn-sm btn-danger"
+                        title="Borrar esta venta anterior (carga histórica)"
+                        onClick={() => borrarAnterior(v)}
+                      >
+                        Borrar
+                      </button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -280,12 +312,29 @@ function DevolucionModal({
   const [metodo, setMetodo] = useState(venta.metodo_pago ?? 'efectivo')
   const [procesando, setProcesando] = useState(false)
 
+  async function recargar(): Promise<void> {
+    const r: any = await window.api.devolucionesPorVenta(venta.id)
+    setItems(r.items)
+    setDevueltasPrevias(r.devoluciones)
+  }
   useEffect(() => {
-    window.api.devolucionesPorVenta(venta.id).then((r: any) => {
-      setItems(r.items)
-      setDevueltasPrevias(r.devoluciones)
-    })
+    recargar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [venta.id])
+
+  async function anular(dev: any): Promise<void> {
+    if (
+      !(await confirmar(
+        `¿Anular esta devolución de ${cop(dev.total)}?\n\nEl stock volverá a como estaba (se quita lo que se había reingresado). Sirve para corregir una devolución mal hecha; luego puedes registrarla de nuevo con la cantidad correcta.`,
+        'Anular devolución'
+      ))
+    ) {
+      return
+    }
+    await window.api.devolucionesEliminar(dev.id)
+    await recargar()
+    avisar('Devolución anulada. El stock volvió a como estaba.', 'Listo')
+  }
 
   function maxDevolver(it: any): number {
     return it.cantidad - it.devuelto
@@ -300,7 +349,7 @@ function DevolucionModal({
   )
   const hayAlgo = totalDevolver > 0
 
-  async function confirmar(): Promise<void> {
+  async function procesarDevolucion(): Promise<void> {
     const aDevolver = items
       .filter((it) => (cantidades[it.id] ?? 0) > 0)
       .map((it) => ({
@@ -322,7 +371,7 @@ function DevolucionModal({
       items: aDevolver
     })
     setProcesando(false)
-    alert(`Devolución registrada por ${cop(totalDevolver)}. El stock fue reingresado.`)
+    avisar(`Devolución registrada por ${cop(totalDevolver)}. El stock fue reingresado.`)
     onDone()
   }
 
@@ -398,16 +447,43 @@ function DevolucionModal({
         </div>
 
         {devueltasPrevias.length > 0 && (
-          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-            Esta venta ya tiene {devueltasPrevias.length} devolución(es) previa(s).
-          </p>
+          <div style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 12 }}>Devoluciones ya hechas de esta venta</label>
+            <table>
+              <tbody>
+                {devueltasPrevias.map((d: any) => (
+                  <tr key={d.id}>
+                    <td className="muted" style={{ fontSize: 12 }}>{d.fecha}</td>
+                    <td style={{ fontSize: 13 }}>{d.motivo || '—'}</td>
+                    <td className="text-right"><b>{cop(d.total)}</b></td>
+                    <td className="text-right">
+                      {usuario.rol === 'admin' && (
+                        <button
+                          className="btn-sm btn-danger"
+                          title="Anular esta devolución (corrige errores de cantidad)"
+                          onClick={() => anular(d)}
+                        >
+                          <Icon name="undo" size={13} /> Anular
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {usuario.rol === 'admin' && (
+              <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                ¿Devolviste una cantidad equivocada? <b>Anula</b> la devolución y hazla de nuevo con la cantidad correcta.
+              </p>
+            )}
+          </div>
         )}
 
         <div className="modal-foot">
           <button onClick={onClose} disabled={procesando}>
             Cancelar
           </button>
-          <button className="btn-danger btn-icon" onClick={confirmar} disabled={!hayAlgo || procesando}>
+          <button className="btn-danger btn-icon" onClick={procesarDevolucion} disabled={!hayAlgo || procesando}>
             <Icon name="undo" size={15} /> {procesando ? 'Procesando...' : 'Registrar devolución'}
           </button>
         </div>

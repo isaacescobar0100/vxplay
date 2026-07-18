@@ -170,9 +170,9 @@ export default function Inicio({
           </>
         ) : (
           <div className="stat-card">
-            <div className="stat-label">Ventas de hoy {data?.devoluciones?.total > 0 ? '(neto)' : ''}</div>
+            <div className="stat-label">Ventas de hoy</div>
             <div className="stat-value" style={{ color: 'var(--green)' }}>
-              {cop(data?.devoluciones?.total > 0 ? data?.neto : t?.total_vendido)}
+              {cop(Math.max(0, data?.devoluciones?.total > 0 ? data?.neto ?? 0 : t?.total_vendido ?? 0))}
             </div>
             <div className="muted" style={{ fontSize: 12 }}>
               {t?.num_ventas ?? 0} ventas
@@ -180,22 +180,8 @@ export default function Inicio({
           </div>
         )}
         <div className="stat-card">
-          <div className="stat-label">Devoluciones de hoy</div>
-          <div
-            className="stat-value"
-            style={{ color: (data?.devoluciones?.total ?? 0) > 0 ? 'var(--red)' : 'var(--green)' }}
-          >
-            {cop(data?.devoluciones?.total ?? 0)}
-          </div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {(data?.devoluciones?.n ?? 0) > 0
-              ? `${data?.devoluciones?.n} devolución(es)`
-              : 'sin devoluciones'}
-          </div>
-        </div>
-        <div className="stat-card">
           <div className="stat-label">Utilidad estimada hoy</div>
-          <div className="stat-value">{cop(u?.utilidad)}</div>
+          <div className="stat-value">{cop(Math.max(0, u?.utilidad ?? 0))}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             Margen {u?.margen ?? 0}%
             {(data?.gastos?.total ?? 0) > 0 && <> · neta {cop(data?.gananciaNeta ?? 0)}</>}

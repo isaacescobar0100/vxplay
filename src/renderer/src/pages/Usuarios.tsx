@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import type { Usuario } from '../App'
 import Icon from '../components/Icon'
 
@@ -17,11 +18,11 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
 
   async function guardar(): Promise<void> {
     if (!editando.nombre?.trim() || !editando.usuario?.trim()) {
-      alert('Nombre y usuario de acceso son obligatorios')
+      avisar('Nombre y usuario de acceso son obligatorios')
       return
     }
     if (!editando.id && !editando.password) {
-      alert('Define una contraseña para el nuevo usuario')
+      avisar('Define una contraseña para el nuevo usuario')
       return
     }
     try {
@@ -29,13 +30,13 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
       setEditando(null)
       cargar()
     } catch (e: any) {
-      alert(e?.message ?? 'No se pudo guardar')
+      avisar(e?.message ?? 'No se pudo guardar')
     }
   }
 
   async function toggle(u: any): Promise<void> {
     if (u.id === usuarioActual.id) {
-      alert('No puedes desactivar tu propio usuario')
+      avisar('No puedes desactivar tu propio usuario')
       return
     }
     await window.api.usuariosToggle(u.id, !u.activo)
@@ -44,15 +45,15 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
 
   async function eliminar(u: any): Promise<void> {
     if (u.id === usuarioActual.id) {
-      alert('No puedes eliminar tu propio usuario')
+      avisar('No puedes eliminar tu propio usuario')
       return
     }
-    if (!confirm('¿Eliminar al usuario "' + u.nombre + '"? Esta acción no se puede deshacer.')) return
+    if (!(await confirmar('¿Eliminar al usuario "' + u.nombre + '"? Esta acción no se puede deshacer.'))) return
     const r: any = await window.api.usuariosEliminar(u.id)
     if (r?.ok) {
       cargar()
     } else {
-      alert(r?.error ?? 'No se pudo eliminar')
+      avisar(r?.error ?? 'No se pudo eliminar')
     }
   }
 

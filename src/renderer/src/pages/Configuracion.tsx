@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import Icon from '../components/Icon'
 
 export default function Configuracion(): JSX.Element {
@@ -46,14 +47,14 @@ export default function Configuracion(): JSX.Element {
     setNubeCargando(false)
     if (r.ok) {
       await cargarNube()
-      alert('Respaldo subido a la nube correctamente. ✔')
+      avisar('Respaldo subido a la nube correctamente. ✔')
     } else {
-      alert('No se pudo respaldar: ' + (r.error ?? ''))
+      avisar('No se pudo respaldar: ' + (r.error ?? ''))
     }
   }
   async function restaurarNube(): Promise<void> {
     if (
-      !confirm(
+      !(await confirmar(
         '⚠️ RESTAURAR DESDE LA NUBE\n\n' +
           'Esto REEMPLAZA los datos actuales de este equipo por la última copia en la nube. ' +
           'Si aquí hay ventas más nuevas que la copia, se perderían.\n\n' +
@@ -61,12 +62,12 @@ export default function Configuracion(): JSX.Element {
           'Tranquilo: antes de reemplazar, se guarda automáticamente una copia del estado actual ' +
           '(queda en "Respaldo local"), por si necesitas volver atrás.\n\n' +
           '¿Continuar? La app se reiniciará.'
-      )
+      ))
     ) {
       return
     }
     const r: any = await window.api.nubeRestaurar()
-    if (!r.ok) alert('No se pudo restaurar: ' + (r.error ?? ''))
+    if (!r.ok) avisar('No se pudo restaurar: ' + (r.error ?? ''))
     // si ok, la app se reinicia sola
   }
 
@@ -75,11 +76,11 @@ export default function Configuracion(): JSX.Element {
     const r: any = await window.api.cartaPublicar()
     setCartaCargando(false)
     if (r.ok) {
-      alert(
+      avisar(
         'Carta publicada con ' + r.count + ' producto(s).\n\nLos clientes ya la ven al escanear el QR de la mesa.'
       )
     } else {
-      alert('No se pudo publicar la carta: ' + (r.error ?? ''))
+      avisar('No se pudo publicar la carta: ' + (r.error ?? ''))
     }
   }
 
@@ -106,12 +107,12 @@ export default function Configuracion(): JSX.Element {
 
   async function exportar(): Promise<void> {
     const r: any = await window.api.backupExportar()
-    if (r.ok) alert('Copia exportada en:\n' + r.ruta)
+    if (r.ok) avisar('Copia exportada en:\n' + r.ruta)
   }
   async function crearRespaldo(): Promise<void> {
     await window.api.backupCrear()
     await cargarBackups()
-    alert('Respaldo creado correctamente.')
+    avisar('Respaldo creado correctamente.')
   }
   async function importar(): Promise<void> {
     await window.api.backupImportar() // si el usuario confirma, la app se reinicia sola
@@ -121,7 +122,7 @@ export default function Configuracion(): JSX.Element {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 500 * 1024) {
-      alert('La imagen es muy grande (máx. 500 KB). Usa una más pequeña.')
+      avisar('La imagen es muy grande (máx. 500 KB). Usa una más pequeña.')
       return
     }
     const reader = new FileReader()

@@ -412,6 +412,42 @@ export function registerHandlers(): void {
   // caja abierta ni afecta el arqueo actual; usa la fecha indicada y descuenta stock.
   ipcMain.handle('ventas:crearAnterior', (_e, venta: any) => registrarVentaAnterior(venta))
 
+  // Borra una VENTA ANTERIOR (carga histórica) mal cargada: repone el stock y la
+  // quita del historial. SOLO permite borrar ventas anteriores (sesion_id NULL);
+  // las ventas de caja real NO se pueden borrar.
+  ipcMain.handle('ventas:eliminarAnterior', (_e, ventaId: number) => {
+    const venta = queryOne<any>('SELECT * FROM ventas WHERE id = ?', [ventaId])
+    if (!venta) throw new Error('Venta no encontrada')
+    if (venta.sesion_id != null) {
+      throw new Error('Solo se pueden borrar ventas anteriores (carga histórica), no las ventas de caja.')
+    }
+    transaction(() => {
+      // 1. Reponer el stock que la venta había descontado
+      const items = query<any>('SELECT * FROM venta_items WHERE venta_id = ?', [ventaId])
+      for (const it of items) {
+        if (it.variante_id) getDb().run('UPDATE variantes SET stock = stock + ? WHERE id = ?', [it.cantidad, it.variante_id])
+      }
+      // 2. Deshacer sus devoluciones (que habían reingresado stock)
+      const devs = query<any>('SELECT id FROM devoluciones WHERE venta_id = ?', [ventaId])
+      for (const d of devs) {
+        const ditems = query<any>('SELECT * FROM devolucion_items WHERE devolucion_id = ?', [d.id])
+        for (const di of ditems) {
+          if (di.variante_id) getDb().run('UPDATE variantes SET stock = stock - ? WHERE id = ?', [di.cantidad, di.variante_id])
+        }
+        getDb().run('DELETE FROM devolucion_items WHERE devolucion_id = ?', [d.id])
+      }
+      getDb().run('DELETE FROM devoluciones WHERE venta_id = ?', [ventaId])
+      // 3. Limpiar kardex, pagos, items y la venta
+      getDb().run('DELETE FROM movimientos_inventario WHERE motivo LIKE ?', ['Venta ' + venta.numero + '%'])
+      getDb().run('DELETE FROM movimientos_inventario WHERE motivo = ?', ['Devolución venta #' + ventaId])
+      getDb().run('DELETE FROM venta_pagos WHERE venta_id = ?', [ventaId])
+      getDb().run('DELETE FROM venta_items WHERE venta_id = ?', [ventaId])
+      getDb().run('DELETE FROM ventas WHERE id = ?', [ventaId])
+    })
+    programarResumen()
+    return { ok: true }
+  })
+
   ipcMain.handle('ventas:get', (_e, id: number) => obtenerVenta(id))
 
   ipcMain.handle('ventas:list', (_e, limit = 100, dia?: string) => {
@@ -793,16 +829,22 @@ export function registerHandlers(): void {
 
   ipcMain.handle('devoluciones:crear', (_e, data: any) => {
     const sesion = sesionAbierta() as any
+    // La devolución se fecha con la FECHA DE LA VENTA (no la de hoy), para que
+    // reste en el MISMO período que la venta. Clave con ventas anteriores
+    // (backdated): si no, la devolución caía en otro día y no descontaba.
+    const ventaFecha =
+      (queryOne<{ fecha: string }>('SELECT fecha FROM ventas WHERE id = ?', [data.venta_id])?.fecha) ?? null
     let devolucionId = 0
     transaction(() => {
       const total = (data.items as any[]).reduce((s, it) => s + it.precio_unitario * it.cantidad, 0)
       getDb().run(
-        `INSERT INTO devoluciones (venta_id, sesion_id, usuario_id, motivo, metodo, total)
-         VALUES (?,?,?,?,?,?)`,
+        `INSERT INTO devoluciones (venta_id, sesion_id, usuario_id, fecha, motivo, metodo, total)
+         VALUES (?,?,?, COALESCE(?, datetime('now','localtime')), ?,?,?)`,
         [
           data.venta_id,
           sesion ? sesion.id : null,
           data.usuario_id ?? null,
+          ventaFecha,
           data.motivo ?? null,
           data.metodo ?? 'efectivo',
           total
@@ -831,14 +873,39 @@ export function registerHandlers(): void {
         if (it.variante_id) {
           getDb().run('UPDATE variantes SET stock = stock + ? WHERE id = ?', [it.cantidad, it.variante_id])
           getDb().run(
-            "INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo) VALUES (?, 'devolucion', ?, ?)",
-            [it.variante_id, it.cantidad, 'Devolución venta #' + data.venta_id]
+            `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo, fecha)
+             VALUES (?, 'devolucion', ?, ?, COALESCE(?, datetime('now','localtime')))`,
+            [it.variante_id, it.cantidad, 'Devolución venta #' + data.venta_id, ventaFecha]
           )
         }
       }
     })
     programarResumen() // refresca el Panel del Dueño (neto/utilidad del turno)
     return queryOne('SELECT * FROM devoluciones WHERE id = ?', [devolucionId])
+  })
+
+  // Anular una devolución mal hecha: deshace el reingreso de stock y la quita del
+  // cálculo (para corregir cantidades equivocadas). Deja rastro en el kardex.
+  ipcMain.handle('devoluciones:eliminar', (_e, devolucionId: number) => {
+    const dev = queryOne<any>('SELECT * FROM devoluciones WHERE id = ?', [devolucionId])
+    if (!dev) throw new Error('Devolución no encontrada')
+    transaction(() => {
+      const items = query<any>('SELECT * FROM devolucion_items WHERE devolucion_id = ?', [devolucionId])
+      for (const it of items) {
+        if (it.variante_id) {
+          // deshacer el reingreso: el stock vuelve a como estaba antes de la devolución
+          getDb().run('UPDATE variantes SET stock = stock - ? WHERE id = ?', [it.cantidad, it.variante_id])
+          getDb().run(
+            "INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo) VALUES (?, 'ajuste', ?, ?)",
+            [it.variante_id, -it.cantidad, 'Anulación devolución venta #' + dev.venta_id]
+          )
+        }
+      }
+      getDb().run('DELETE FROM devolucion_items WHERE devolucion_id = ?', [devolucionId])
+      getDb().run('DELETE FROM devoluciones WHERE id = ?', [devolucionId])
+    })
+    programarResumen()
+    return { ok: true }
   })
 
   // ---------- PROVEEDORES ----------

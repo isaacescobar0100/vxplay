@@ -14,6 +14,7 @@ import Inicio from './pages/Inicio'
 import Mesas from './pages/Mesas'
 import CuentasPorCobrar from './pages/CuentasPorCobrar'
 import Icon, { type IconName } from './components/Icon'
+import { DialogHost, avisar, confirmar } from './dialogo'
 
 export interface Usuario {
   id: number
@@ -144,7 +145,7 @@ export default function App(): JSX.Element {
               className="btn-sm"
               style={{ marginTop: 8, fontSize: 11, padding: '4px 8px' }}
               onClick={async () => {
-                if (confirm('¿Cambiar la licencia/tienda de este equipo? Deberás ingresar otro código.')) {
+                if (await confirmar('¿Cambiar la licencia/tienda de este equipo? Deberás ingresar otro código.')) {
                   await window.api.licenciaCambiar()
                   // Reinicio limpio: borra TODO el estado en memoria (config, sesión, páginas)
                   // para que no queden datos de la tienda anterior en pantalla.
@@ -219,6 +220,7 @@ export default function App(): JSX.Element {
       </main>
 
       {cambiarPass && <CambiarPassword usuario={usuario} onClose={() => setCambiarPass(false)} />}
+      <DialogHost />
     </div>
   )
 }
@@ -287,7 +289,7 @@ function Bloqueado({ motivo, onReintentar }: { motivo: string; onReintentar: () 
     setCargando(false)
   }
   async function cambiarLicencia(): Promise<void> {
-    if (confirm('¿Activar otra licencia en este equipo? Se borrará la licencia actual y podrás ingresar un código nuevo.')) {
+    if (await confirmar('¿Activar otra licencia en este equipo? Se borrará la licencia actual y podrás ingresar un código nuevo.')) {
       await window.api.licenciaCambiar()
       window.location.reload()
     }
@@ -322,17 +324,17 @@ function CambiarPassword({ usuario, onClose }: { usuario: Usuario; onClose: () =
 
   async function guardar(): Promise<void> {
     if (nueva !== repetir) {
-      alert('La nueva contraseña y su repetición no coinciden')
+      avisar('La nueva contraseña y su repetición no coinciden')
       return
     }
     setGuardando(true)
     const r: any = await window.api.cambiarPassword(usuario.id, actual, nueva)
     setGuardando(false)
     if (r.ok) {
-      alert('Contraseña actualizada correctamente')
+      avisar('Contraseña actualizada correctamente')
       onClose()
     } else {
-      alert(r.error ?? 'No se pudo cambiar la contraseña')
+      avisar(r.error ?? 'No se pudo cambiar la contraseña')
     }
   }
 

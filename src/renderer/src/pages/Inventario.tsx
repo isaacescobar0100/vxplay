@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import { cop } from '../util'
 import Icon from '../components/Icon'
 import { code39Svg } from '../barcode'
@@ -73,7 +74,7 @@ export default function Inventario(): JSX.Element {
   }, [filtro])
 
   async function eliminar(p: any): Promise<void> {
-    if (!confirm(`¿Eliminar el producto "${p.nombre}"?\n\nDejará de aparecer en el catálogo, pero se conserva en el historial de ventas.`)) {
+    if (!(await confirmar(`¿Eliminar el producto "${p.nombre}"?\n\nDejará de aparecer en el catálogo, pero se conserva en el historial de ventas.`))) {
       return
     }
     await window.api.productosDelete(p.id)
@@ -233,7 +234,7 @@ function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImport
 
   async function descargarPlantilla(): Promise<void> {
     const r: any = await window.api.productosPlantilla()
-    if (r?.ok) alert('Plantilla guardada en:\n' + r.ruta)
+    if (r?.ok) avisar('Plantilla guardada en:\n' + r.ruta)
   }
 
   async function elegirArchivo(): Promise<void> {
@@ -241,7 +242,7 @@ function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImport
     const r: any = await window.api.productosImportarLeer()
     setCargando(false)
     if (!r?.ok) {
-      if (r?.error && r.error !== 'cancelado') alert(r.error)
+      if (r?.error && r.error !== 'cancelado') avisar(r.error)
       return
     }
     setPreview(r)
@@ -253,7 +254,7 @@ function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImport
     setGuardando(false)
     if (r?.ok) {
       const skus = (r.skusOmitidos ?? []).join(', ')
-      alert(
+      avisar(
         `Importación lista:\n• ${r.creados} productos creados` +
           (r.reactivados ? `\n• ${r.reactivados} reactivados (estaban borrados)` : '') +
           `\n• ${r.variantes} variantes\n• ${r.categoriasNuevas} categorías nuevas` +
@@ -264,7 +265,7 @@ function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImport
       )
       onImportado()
     } else {
-      alert('No se pudo importar.')
+      avisar('No se pudo importar.')
     }
   }
 
@@ -391,7 +392,7 @@ function EtiquetasModal({ onClose }: { onClose: () => void }): JSX.Element {
   async function imprimir(): Promise<void> {
     const html = construirHtml()
     if (!html) {
-      alert('Indica cuántas etiquetas de al menos un producto.')
+      avisar('Indica cuántas etiquetas de al menos un producto.')
       return
     }
     await window.api.imprimirEtiquetas(html)
@@ -400,11 +401,11 @@ function EtiquetasModal({ onClose }: { onClose: () => void }): JSX.Element {
   async function descargarPdf(): Promise<void> {
     const html = construirHtml()
     if (!html) {
-      alert('Indica cuántas etiquetas de al menos un producto.')
+      avisar('Indica cuántas etiquetas de al menos un producto.')
       return
     }
     const r: any = await window.api.etiquetasPdf(html)
-    if (r.ok) alert('Etiquetas guardadas en:\n' + r.ruta)
+    if (r.ok) avisar('Etiquetas guardadas en:\n' + r.ruta)
   }
 
   return (
@@ -499,7 +500,7 @@ function StockModal({
   async function ajustar(v: any): Promise<void> {
     const nuevo = ajustes[v.id]
     if (nuevo == null || nuevo === v.stock) {
-      alert('Escribe el nuevo stock (diferente al actual)')
+      avisar('Escribe el nuevo stock (diferente al actual)')
       return
     }
     await window.api.inventarioAjustar(v.id, nuevo, motivo || 'Ajuste manual')
@@ -728,7 +729,7 @@ export function ProductoModal({
   const [guardandoProd, setGuardandoProd] = useState(false)
   async function guardar(): Promise<void> {
     if (!form.nombre.trim()) {
-      alert('El nombre es obligatorio')
+      avisar('El nombre es obligatorio')
       return
     }
     if (guardandoProd) return
@@ -737,7 +738,7 @@ export function ProductoModal({
       await window.api.productosSave({ ...form, fecha })
       onSaved()
     } catch (e: any) {
-      alert('No se pudo guardar el producto:\n' + (e?.message ?? e))
+      avisar('No se pudo guardar el producto:\n' + (e?.message ?? e))
     } finally {
       setGuardandoProd(false)
     }

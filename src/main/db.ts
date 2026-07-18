@@ -326,6 +326,23 @@ function migrateSchema(): void {
   if (!cols.find((c) => c.name === 'propina')) {
     db.run('ALTER TABLE ventas ADD COLUMN propina INTEGER NOT NULL DEFAULT 0')
   }
+
+  // Corrección única: alinear la fecha de las devoluciones VIEJAS a la fecha de
+  // su venta, para que resten en el mismo período (antes se guardaban con la
+  // fecha del día en que se hacían → no descontaban con ventas anteriores).
+  const migDev = queryOne<{ valor: string }>("SELECT valor FROM config WHERE clave = 'mig_devol_fecha_v1'")
+  if (!migDev) {
+    db.run(
+      `UPDATE devoluciones
+         SET fecha = (SELECT v.fecha FROM ventas v WHERE v.id = devoluciones.venta_id)
+       WHERE venta_id IS NOT NULL
+         AND EXISTS (SELECT 1 FROM ventas v WHERE v.id = devoluciones.venta_id)
+         AND date(fecha) <> date((SELECT v.fecha FROM ventas v WHERE v.id = devoluciones.venta_id))`
+    )
+    db.run(
+      "INSERT INTO config (clave, valor) VALUES ('mig_devol_fecha_v1','1') ON CONFLICT(clave) DO UPDATE SET valor='1'"
+    )
+  }
 }
 
 function seedInitialData(): void {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import type { Usuario } from '../App'
 import { cop } from '../util'
 import Icon from '../components/Icon'
@@ -32,9 +33,9 @@ export default function Compras({ usuario }: { usuario: Usuario }): JSX.Element 
 
   async function borrar(c: any): Promise<void> {
     if (
-      !confirm(
+      !(await confirmar(
         `¿Borrar la entrada ${c.numero} por ${cop(c.total)}?\n\nSe descontará del stock la mercancía que había sumado. Esta acción no se puede deshacer.`
-      )
+      ))
     ) {
       return
     }
@@ -215,7 +216,7 @@ function CompraModal({
 
   async function guardarProveedor(): Promise<void> {
     if (!nuevoProv.nombre.trim()) {
-      alert('El nombre del proveedor es obligatorio')
+      avisar('El nombre del proveedor es obligatorio')
       return
     }
     const id = (await window.api.proveedoresSave(nuevoProv)) as number
@@ -251,7 +252,7 @@ function CompraModal({
 
   function agregarLinea(): void {
     if (opciones.length === 0) {
-      alert('Primero crea productos en Inventario')
+      avisar('Primero crea productos en Inventario')
       return
     }
     const first = opciones[0]
@@ -292,7 +293,7 @@ function CompraModal({
 
   async function guardar(): Promise<void> {
     if (items.length === 0) {
-      alert('Agrega al menos un producto')
+      avisar('Agrega al menos un producto')
       return
     }
     setProcesando(true)
@@ -302,11 +303,11 @@ function CompraModal({
       else await window.api.comprasCrear(payload)
     } catch (e: any) {
       setProcesando(false)
-      alert('No se pudo guardar la entrada:\n' + (e?.message ?? e))
+      avisar('No se pudo guardar la entrada:\n' + (e?.message ?? e))
       return
     }
     setProcesando(false)
-    alert(edicion ? 'Entrada actualizada. El stock se ajustó.' : 'Entrada registrada. El stock fue actualizado.')
+    avisar(edicion ? 'Entrada actualizada. El stock se ajustó.' : 'Entrada registrada. El stock fue actualizado.')
     onDone()
   }
 
@@ -506,7 +507,7 @@ function ProveedoresModal({ onClose }: { onClose: () => void }): JSX.Element {
 
   async function guardar(): Promise<void> {
     if (!editando.nombre?.trim()) {
-      alert('El nombre es obligatorio')
+      avisar('El nombre es obligatorio')
       return
     }
     await window.api.proveedoresSave(editando)

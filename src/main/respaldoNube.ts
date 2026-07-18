@@ -286,10 +286,12 @@ function construirSnapshot(): Record<string, unknown> {
       ventas_bruto: bruto,
       devoluciones: dev,
       ndev: devHoy?.ndev ?? 0,
-      neto: bruto - dev,
+      // Las ventas no pueden ser negativas: si una devolución de otro turno deja
+      // el neto en negativo, se muestra 0.
+      neto: Math.max(0, bruto - dev),
       gastos,
-      utilidad,
-      ganancia_neta: utilidad - gastos
+      utilidad: Math.max(0, utilidad),
+      ganancia_neta: Math.max(0, utilidad - gastos)
     },
     mes: {
       ventas_num: mes?.num ?? 0,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import Icon from '../components/Icon'
 
 const vacio = {
@@ -26,7 +27,7 @@ export default function Clientes(): JSX.Element {
 
   async function guardar(): Promise<void> {
     if (!editando.nombre?.trim()) {
-      alert('El nombre es obligatorio')
+      avisar('El nombre es obligatorio')
       return
     }
     await window.api.clientesSave(editando)
@@ -35,7 +36,7 @@ export default function Clientes(): JSX.Element {
   }
 
   async function eliminar(c: any): Promise<void> {
-    if (!confirm(`¿Eliminar al cliente "${c.nombre}"?\n\nSi tiene ventas registradas, se conservarán como "Consumidor final".`)) {
+    if (!(await confirmar(`¿Eliminar al cliente "${c.nombre}"?\n\nSi tiene ventas registradas, se conservarán como "Consumidor final".`))) {
       return
     }
     await window.api.clientesDelete(c.id)

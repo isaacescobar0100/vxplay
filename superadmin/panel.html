@@ -535,7 +535,6 @@
           kpi('Ventas de hoy', cop(h.neto), 'green', (h.ventas_num || 0) + ' venta(s)'),
           kpi('Utilidad hoy', cop(h.utilidad), '', 'Ganancia neta ' + cop(h.ganancia_neta)),
           kpi('Gastos hoy', cop(h.gastos), h.gastos > 0 ? 'amber' : ''),
-          kpi('Devoluciones hoy', cop(h.devoluciones), h.devoluciones > 0 ? 'red' : '', (h.ndev || 0) + ' hoy'),
           kpi('Ventas del mes', cop(mes.total), '', (mes.ventas_num || 0) + ' venta(s)')
         ].join('')
         const cajaCard = `<div class="card pad">${

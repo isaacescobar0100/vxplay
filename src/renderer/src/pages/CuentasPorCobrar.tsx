@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar } from '../dialogo'
 import type { Usuario } from '../App'
 import { cop } from '../util'
 import Icon from '../components/Icon'
@@ -115,7 +116,7 @@ function AbonoModal({
 
   async function guardar(): Promise<void> {
     if (monto <= 0) {
-      alert('Escribe un monto mayor a 0')
+      avisar('Escribe un monto mayor a 0')
       return
     }
     setGuardando(true)
@@ -128,7 +129,7 @@ function AbonoModal({
     })
     setGuardando(false)
     if (r?.ok) onDone()
-    else alert(r?.error ?? 'No se pudo registrar el abono')
+    else avisar(r?.error ?? 'No se pudo registrar el abono')
   }
 
   return (

@@ -56,6 +56,7 @@ const api = {
   // Ventas
   ventasCrear: (venta: unknown) => ipcRenderer.invoke('ventas:crear', venta),
   ventasCrearAnterior: (venta: unknown) => ipcRenderer.invoke('ventas:crearAnterior', venta),
+  ventasEliminarAnterior: (id: number) => ipcRenderer.invoke('ventas:eliminarAnterior', id),
   ventasGet: (id: number) => ipcRenderer.invoke('ventas:get', id),
   ventasList: (limit?: number, dia?: string) => ipcRenderer.invoke('ventas:list', limit, dia),
   facturarDian: (ventaId: number) => ipcRenderer.invoke('ventas:facturarDian', ventaId),
@@ -74,6 +75,7 @@ const api = {
   // Devoluciones
   devolucionesPorVenta: (ventaId: number) => ipcRenderer.invoke('devoluciones:porVenta', ventaId),
   devolucionesCrear: (data: unknown) => ipcRenderer.invoke('devoluciones:crear', data),
+  devolucionesEliminar: (id: number) => ipcRenderer.invoke('devoluciones:eliminar', id),
 
   // Mesas / comandas
   mesasList: () => ipcRenderer.invoke('mesas:list'),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Usuario } from '../App'
 import { cop } from '../util'
 import Icon from '../components/Icon'
@@ -29,6 +29,8 @@ export default function VentaAnterior({ usuario }: { usuario: Usuario }): JSX.El
   const [metodo, setMetodo] = useState('efectivo')
   const [procesando, setProcesando] = useState(false)
   const [ok, setOk] = useState<string | null>(null)
+  const [confirmar, setConfirmar] = useState(false)
+  const keyRef = useRef(0) // key única y estable por línea (evita que React reuse inputs)
 
   async function cargarOpciones(): Promise<void> {
     const prods = (await window.api.productosList()) as any[]
@@ -56,13 +58,15 @@ export default function VentaAnterior({ usuario }: { usuario: Usuario }): JSX.El
 
   function agregarLinea(): void {
     if (opciones.length === 0) {
-      alert('Primero crea productos en Inventario')
+      setOk('⚠️ Primero crea productos en Inventario.')
       return
     }
     const f = opciones[0]
+    setOk(null)
     setItems((prev) => [
       ...prev,
       {
+        _k: keyRef.current++,
         variante_id: f.variante_id,
         producto_nombre: f.producto_nombre,
         talla: f.talla,
@@ -95,18 +99,22 @@ export default function VentaAnterior({ usuario }: { usuario: Usuario }): JSX.El
 
   const total = items.reduce((s, it) => s + it.precio_unitario * it.cantidad, 0)
 
-  async function registrar(): Promise<void> {
+  // Abre la confirmación (modal propio, NO confirm() nativo: ese deja los inputs
+  // "muertos" en Electron hasta re-enfocar la ventana).
+  function pedir(): void {
     if (items.length === 0) {
-      alert('Agrega al menos un producto')
+      setOk('⚠️ Agrega al menos un producto.')
       return
     }
     if (!fecha) {
-      alert('Elige la fecha de la venta')
+      setOk('⚠️ Elige la fecha de la venta.')
       return
     }
-    if (!confirm(`¿Registrar esta venta con fecha ${fecha} por ${cop(total)}?\n\nDescontará el stock y quedará en el historial con esa fecha.`)) {
-      return
-    }
+    setConfirmar(true)
+  }
+
+  async function registrar(): Promise<void> {
+    setConfirmar(false)
     setProcesando(true)
     const payload = {
       fecha,
@@ -127,15 +135,20 @@ export default function VentaAnterior({ usuario }: { usuario: Usuario }): JSX.El
         subtotal: it.precio_unitario * it.cantidad
       }))
     }
-    const r: any = await window.api.ventasCrearAnterior(payload)
-    setProcesando(false)
-    if (r?.numero) {
-      setOk(`Venta ${r.numero} registrada con fecha ${fecha} por ${cop(r.total)}. ✔`)
-      setItems([])
-      setClienteId(null)
-      cargarOpciones() // refresca el stock mostrado
-    } else {
-      alert('No se pudo registrar la venta.')
+    try {
+      const r: any = await window.api.ventasCrearAnterior(payload)
+      if (r?.numero) {
+        setItems([])
+        setClienteId(null)
+        setOk(`Venta ${r.numero} registrada con fecha ${fecha} por ${cop(r.total)}. ✔`)
+        await cargarOpciones() // refresca el stock mostrado
+      } else {
+        setOk('❌ No se pudo registrar la venta.')
+      }
+    } catch (e: any) {
+      setOk('❌ No se pudo registrar: ' + (e?.message ?? e))
+    } finally {
+      setProcesando(false)
     }
   }
 
@@ -190,7 +203,7 @@ export default function VentaAnterior({ usuario }: { usuario: Usuario }): JSX.El
           </thead>
           <tbody>
             {items.map((it, i) => (
-              <tr key={i}>
+              <tr key={it._k ?? i}>
                 <td>
                   <select value={it.variante_id} onChange={(e) => setLinea(i, 'variante_id', e.target.value)}>
                     {opciones.map((o) => (
@@ -249,16 +262,43 @@ export default function VentaAnterior({ usuario }: { usuario: Usuario }): JSX.El
         </div>
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12 }}>
-          <button className="btn-green btn-icon" onClick={registrar} disabled={procesando || items.length === 0}>
+          <button className="btn-green btn-icon" onClick={pedir} disabled={procesando || items.length === 0}>
             <Icon name="check" size={15} /> {procesando ? 'Registrando...' : 'Registrar venta'}
           </button>
           {ok && (
-            <span style={{ color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="check" size={16} /> {ok}
+            <span
+              style={{
+                color: ok.startsWith('⚠️') || ok.startsWith('❌') ? 'var(--red)' : 'var(--green)',
+                fontSize: 14
+              }}
+            >
+              {ok}
             </span>
           )}
         </div>
       </div>
+
+      {confirmar && (
+        <div className="modal-overlay" onClick={() => setConfirmar(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 430 }}>
+            <h2 className="section-title">
+              <Icon name="calendar" size={20} /> Confirmar venta anterior
+            </h2>
+            <p style={{ fontSize: 14 }}>
+              Se registrará con fecha <b>{fecha}</b> por <b>{cop(total)}</b>. Descontará el stock y quedará en el
+              historial con esa fecha.
+            </p>
+            <div className="modal-foot">
+              <button onClick={() => setConfirmar(false)} disabled={procesando}>
+                Cancelar
+              </button>
+              <button className="btn-green btn-icon" onClick={registrar} disabled={procesando}>
+                <Icon name="check" size={15} /> {procesando ? 'Registrando...' : 'Sí, registrar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar, confirmar } from '../dialogo'
 import type { Usuario } from '../App'
 import { cop } from '../util'
 import Icon from '../components/Icon'
@@ -29,7 +30,7 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
 
   async function registrarGasto(): Promise<void> {
     if (!gasto.concepto.trim() || gasto.monto <= 0) {
-      alert('Indica el concepto y un monto válido')
+      avisar('Indica el concepto y un monto válido')
       return
     }
     await window.api.gastosCrear({ ...gasto, usuario_id: usuario.id })
@@ -50,18 +51,18 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
   }
 
   async function cerrar(): Promise<void> {
-    if (!confirm('¿Cerrar la caja? No podrás registrar más ventas hasta abrir una nueva.')) return
+    if (!(await confirmar('¿Cerrar la caja? No podrás registrar más ventas hasta abrir una nueva.'))) return
     const sesionId = sesion.id
     setCargando(true)
     const r: any = await window.api.cajaCerrar(sesionId, montoContado, usuario.id, notas)
     setCargando(false)
     const dif = r.diferencia
-    alert(
+    avisar(
       `Caja cerrada.\nEfectivo esperado: ${cop(r.efectivo_esperado)}\nContado: ${cop(
         montoContado
       )}\nDiferencia: ${dif === 0 ? 'Cuadró exacto ✔' : (dif > 0 ? 'Sobrante ' : 'Faltante ') + cop(Math.abs(dif))}`
     )
-    if (confirm('¿Imprimir el reporte de cierre (Z)?')) {
+    if (await confirmar('¿Imprimir el reporte de cierre (Z)?')) {
       await window.api.cajaImprimirCierre(sesionId)
     }
     setMontoContado(0)

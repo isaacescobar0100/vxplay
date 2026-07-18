@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { avisar } from '../dialogo'
 import { cop, hoyISO } from '../util'
 import Icon from '../components/Icon'
 
@@ -45,7 +46,7 @@ export default function Reportes(): JSX.Element {
     setExportando(true)
     const r: any = await window.api.reportesExportar(desde, hasta, detalle)
     setExportando(false)
-    if (r.ok) alert(`Exportado ${r.filas} registros a:\n${r.ruta}\n\nÁbrelo con Excel.`)
+    if (r.ok) avisar(`Exportado ${r.filas} registros a:\n${r.ruta}\n\nÁbrelo con Excel.`)
   }
 
   useEffect(() => {
@@ -118,27 +119,18 @@ export default function Reportes(): JSX.Element {
         }}
       >
         <div className="stat-card">
-          <div className="stat-label">Devoluciones</div>
-          <div className="stat-value" style={{ color: 'var(--red)' }}>
-            −{cop(data?.devoluciones?.total)}
-          </div>
-          <div className="muted" style={{ fontSize: 12 }}>{data?.devoluciones?.n ?? 0} devoluciones</div>
-        </div>
-        <div className="stat-card">
           <div className="stat-label">Ventas netas</div>
           <div className="stat-value" style={{ color: 'var(--green)' }}>
-            {cop(data?.neto)}
+            {cop(Math.max(0, data?.neto ?? 0))}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            {t?.num_ventas ?? 0} ventas
-            {(data?.devoluciones?.total ?? 0) > 0 && ` · ${cop(t?.total_vendido)} − ${cop(data?.devoluciones?.total)} devol.`}
-            {dianOn ? ` · IVA ${cop(t?.total_iva)}` : ''}
+            {t?.num_ventas ?? 0} ventas{dianOn ? ` · IVA ${cop(t?.total_iva)}` : ''}
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Utilidad estimada</div>
           <div className="stat-value" style={{ color: 'var(--green)' }}>
-            {cop(data?.utilidad?.utilidad)}
+            {cop(Math.max(0, data?.utilidad?.utilidad ?? 0))}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
             Margen {data?.utilidad?.margen ?? 0}%
