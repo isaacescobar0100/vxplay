@@ -71,7 +71,9 @@ export default function Inicio({
   // Datos para el gráfico de ventas por día (rellena los 7 días, incluso los de $0)
   const porDiaMap: Record<string, number> = {}
   for (const d of semana?.porDia ?? []) porDiaMap[d.dia] = d.total
-  const dias = ultimos7().map((d) => ({ label: d.label, total: porDiaMap[d.iso] ?? 0 }))
+  // Si un día se devolvió más de lo que se vendió, el neto queda negativo: se
+  // muestra en 0 para no dibujar barras hacia abajo.
+  const dias = ultimos7().map((d) => ({ label: d.label, total: Math.max(0, porDiaMap[d.iso] ?? 0) }))
   const maxDia = Math.max(1, ...dias.map((d) => d.total))
 
   const top = (semana?.topProductos ?? []).slice(0, 5)

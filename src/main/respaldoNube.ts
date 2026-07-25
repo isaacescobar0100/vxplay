@@ -120,8 +120,15 @@ function construirSnapshot(): Record<string, unknown> {
   )
   const sid = caja?.id ?? -1
 
+  // Una venta devuelta COMPLETA ya no cuenta como venta (la plata se regresó),
+  // igual que en el POS. Las parciales sí cuentan: esa venta sí dejó dinero.
+  const cuentaVenta = (a: string): string => `CASE WHEN ${a}.total > 0 AND
+      COALESCE((SELECT SUM(dd.total) FROM devoluciones dd WHERE dd.venta_id = ${a}.id), 0) >= ${a}.total
+    THEN 0 ELSE 1 END`
+  const mesActual = `strftime('%Y-%m','now','localtime')`
+
   const vHoy = queryOne<{ num: number; bruto: number }>(
-    `SELECT COUNT(*) as num, COALESCE(SUM(total),0) as bruto
+    `SELECT COALESCE(SUM(${cuentaVenta('ventas')}),0) as num, COALESCE(SUM(total),0) as bruto
      FROM ventas WHERE estado = 'completada' AND sesion_id = ${sid}`
   )
   const devHoy = queryOne<{ ndev: number; monto: number }>(
@@ -153,24 +160,40 @@ function construirSnapshot(): Record<string, unknown> {
      WHERE d.sesion_id = ${sid}`
   )
   // El mes SÍ es por calendario (para Reportes)
-  const mes = queryOne<{ num: number; total: number }>(
-    `SELECT COUNT(*) as num, COALESCE(SUM(total),0) as total
+  const mes = queryOne<{ num: number; bruto: number }>(
+    `SELECT COALESCE(SUM(${cuentaVenta('ventas')}),0) as num, COALESCE(SUM(total),0) as bruto
      FROM ventas WHERE estado = 'completada'
-       AND strftime('%Y-%m', fecha) = strftime('%Y-%m','now','localtime')`
+       AND strftime('%Y-%m', fecha) = ${mesActual}`
+  )
+  const devMes = queryOne<{ monto: number }>(
+    `SELECT COALESCE(SUM(total),0) as monto FROM devoluciones
+     WHERE strftime('%Y-%m', fecha) = ${mesActual}`
   )
   // Ventas por día (30 días) para el gráfico del Panel. Va DENTRO del snapshot
   // (que se reemplaza entero en cada subida) para que al reiniciar quede vacío.
+  // Las devoluciones restan del día de su venta (se fechan con ella).
   const ventasDias = query<{ fecha: string; total: number }>(
-    `SELECT date(fecha) as fecha, COALESCE(SUM(total),0) as total
-     FROM ventas WHERE estado = 'completada' AND date(fecha) >= date('now','-30 days','localtime')
-     GROUP BY date(fecha) ORDER BY fecha`
+    `SELECT fecha, SUM(total) as total FROM (
+       SELECT date(fecha) as fecha, total as total FROM ventas
+       WHERE estado = 'completada' AND date(fecha) >= date('now','-30 days','localtime')
+       UNION ALL
+       SELECT date(fecha), -total FROM devoluciones
+       WHERE date(fecha) >= date('now','-30 days','localtime')
+     ) GROUP BY fecha ORDER BY fecha`
   )
+  // "Más vendidos" descuenta lo devuelto: si volvió al estante, no se vendió.
   const top = query<{ nombre: string; cantidad: number; total: number }>(
-    `SELECT vi.producto_nombre as nombre, SUM(vi.cantidad) as cantidad,
-            SUM(vi.cantidad * vi.precio_unitario) as total
-     FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
-     WHERE v.estado = 'completada' AND v.sesion_id = ${sid}
-     GROUP BY vi.producto_nombre ORDER BY cantidad DESC LIMIT 5`
+    `SELECT nombre, SUM(cantidad) as cantidad, SUM(total) as total FROM (
+       SELECT vi.producto_nombre as nombre, vi.cantidad as cantidad,
+              vi.cantidad * vi.precio_unitario as total
+       FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
+       WHERE v.estado = 'completada' AND v.sesion_id = ${sid}
+       UNION ALL
+       SELECT di.producto_nombre, -di.cantidad, -di.cantidad * di.precio_unitario
+       FROM devolucion_items di JOIN devoluciones d ON d.id = di.devolucion_id
+       WHERE d.sesion_id = ${sid}
+     ) GROUP BY nombre HAVING SUM(cantidad) > 0
+     ORDER BY cantidad DESC LIMIT 5`
   )
   const stockBajo = query<{ nombre: string; stock: number; minimo: number }>(
     `SELECT p.nombre ||
@@ -181,7 +204,7 @@ function construirSnapshot(): Record<string, unknown> {
      WHERE va.stock <= va.stock_minimo AND p.activo = 1
      ORDER BY va.stock ASC LIMIT 30`
   )
-  // Utilidad del mes (para Reportes)
+  // Utilidad del mes (para Reportes), neteando las devoluciones del mes
   const utilMes = queryOne<{ ingreso: number; costo: number }>(
     `SELECT
        COALESCE(SUM(vi.cantidad * vi.precio_unitario * 100.0 / (100 + vi.iva_porcentaje)),0) as ingreso,
@@ -189,24 +212,46 @@ function construirSnapshot(): Record<string, unknown> {
      FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN variantes va ON va.id = vi.variante_id
      LEFT JOIN productos p ON p.id = va.producto_id
-     WHERE v.estado = 'completada' AND strftime('%Y-%m', v.fecha) = strftime('%Y-%m','now','localtime')`
+     WHERE v.estado = 'completada' AND strftime('%Y-%m', v.fecha) = ${mesActual}`
   )
-  // Métodos de pago del mes (para Reportes)
+  const utilDevMes = queryOne<{ base: number; costo: number }>(
+    `SELECT
+       COALESCE(SUM(di.cantidad * di.precio_unitario),0) as base,
+       COALESCE(SUM(di.cantidad * COALESCE(p.precio_compra,0)),0) as costo
+     FROM devolucion_items di JOIN devoluciones d ON d.id = di.devolucion_id
+     LEFT JOIN variantes va ON va.id = di.variante_id
+     LEFT JOIN productos p ON p.id = va.producto_id
+     WHERE strftime('%Y-%m', d.fecha) = ${mesActual}`
+  )
+  // Métodos de pago del mes (para Reportes). Cada devolución resta por el medio
+  // por el que se devolvió la plata.
   const metodos = query<{ metodo: string; num: number; total: number }>(
-    `SELECT vp.metodo as metodo, COUNT(DISTINCT v.id) as num, COALESCE(SUM(vp.monto),0) as total
-     FROM venta_pagos vp JOIN ventas v ON v.id = vp.venta_id
-     WHERE v.estado = 'completada'
-       AND strftime('%Y-%m', v.fecha) = strftime('%Y-%m','now','localtime')
-     GROUP BY vp.metodo ORDER BY total DESC`
+    `SELECT metodo, SUM(num) as num, SUM(total) as total FROM (
+       SELECT vp.metodo as metodo,
+              COUNT(DISTINCT CASE WHEN ${cuentaVenta('v')} = 1 THEN v.id END) as num,
+              COALESCE(SUM(vp.monto),0) as total
+       FROM venta_pagos vp JOIN ventas v ON v.id = vp.venta_id
+       WHERE v.estado = 'completada' AND strftime('%Y-%m', v.fecha) = ${mesActual}
+       GROUP BY vp.metodo
+       UNION ALL
+       SELECT d.metodo, 0, -COALESCE(SUM(d.total),0)
+       FROM devoluciones d WHERE strftime('%Y-%m', d.fecha) = ${mesActual}
+       GROUP BY d.metodo
+     ) GROUP BY metodo HAVING SUM(total) > 0 ORDER BY total DESC`
   )
-  // Productos más vendidos del mes (para Reportes)
+  // Productos más vendidos del mes (para Reportes), descontando devoluciones
   const topMes = query<{ nombre: string; cantidad: number; total: number }>(
-    `SELECT vi.producto_nombre as nombre, SUM(vi.cantidad) as cantidad,
-            SUM(vi.cantidad * vi.precio_unitario) as total
-     FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
-     WHERE v.estado = 'completada'
-       AND strftime('%Y-%m', v.fecha) = strftime('%Y-%m','now','localtime')
-     GROUP BY vi.producto_nombre ORDER BY cantidad DESC LIMIT 10`
+    `SELECT nombre, SUM(cantidad) as cantidad, SUM(total) as total FROM (
+       SELECT vi.producto_nombre as nombre, vi.cantidad as cantidad,
+              vi.cantidad * vi.precio_unitario as total
+       FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
+       WHERE v.estado = 'completada' AND strftime('%Y-%m', v.fecha) = ${mesActual}
+       UNION ALL
+       SELECT di.producto_nombre, -di.cantidad, -di.cantidad * di.precio_unitario
+       FROM devolucion_items di JOIN devoluciones d ON d.id = di.devolucion_id
+       WHERE strftime('%Y-%m', d.fecha) = ${mesActual}
+     ) GROUP BY nombre HAVING SUM(cantidad) > 0
+     ORDER BY cantidad DESC LIMIT 10`
   )
   // Inventario: totales + lista (para el apartado Inventario y exportar)
   const invTot = queryOne<{ items: number; unidades: number; costo: number; venta: number }>(
@@ -225,19 +270,24 @@ function construirSnapshot(): Record<string, unknown> {
      FROM variantes va JOIN productos p ON p.id = va.producto_id
      WHERE p.activo = 1 ORDER BY p.nombre LIMIT 500`
   )
-  // Ventas recientes (el "monitoreo en vivo") — historial amplio para paginar/filtrar
-  const ventasRec = query<{ numero: string; fecha: string; total: number; metodo: string }>(
-    `SELECT numero, fecha, total, metodo_pago as metodo FROM ventas
-     WHERE estado = 'completada' ORDER BY id DESC LIMIT 300`
+  // Ventas recientes (el "monitoreo en vivo") — historial amplio para paginar/filtrar.
+  // `devuelto` permite marcar la venta y mostrar el neto en el Panel.
+  const ventasRec = query<{ numero: string; fecha: string; total: number; metodo: string; devuelto: number }>(
+    `SELECT numero, fecha, total, metodo_pago as metodo,
+            COALESCE((SELECT SUM(dd.total) FROM devoluciones dd WHERE dd.venta_id = ventas.id),0) as devuelto
+     FROM ventas WHERE estado = 'completada' ORDER BY id DESC LIMIT 300`
   )
-  // Detalle de ventas (una fila por producto) para exportar TODO desde el Panel
+  // Detalle de ventas (una fila por producto) para exportar TODO desde el Panel.
+  // `devuelto` = unidades de esa línea que el cliente regresó.
   const ventasDet = query<{
     numero: string; fecha: string; cliente: string; metodo: string; producto: string;
-    talla: string; color: string; cantidad: number; precio_unitario: number; subtotal: number; total_venta: number
+    talla: string; color: string; cantidad: number; precio_unitario: number; subtotal: number;
+    total_venta: number; devuelto: number
   }>(
     `SELECT v.numero, v.fecha, COALESCE(c.nombre,'Consumidor final') as cliente, v.metodo_pago as metodo,
             vi.producto_nombre as producto, COALESCE(vi.talla,'') as talla, COALESCE(vi.color,'') as color,
-            vi.cantidad, vi.precio_unitario, vi.subtotal, v.total as total_venta
+            vi.cantidad, vi.precio_unitario, vi.subtotal, v.total as total_venta,
+            COALESCE((SELECT SUM(di.cantidad) FROM devolucion_items di WHERE di.venta_item_id = vi.id),0) as devuelto
      FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN clientes c ON c.id = v.cliente_id
      WHERE v.estado = 'completada' ORDER BY v.id DESC LIMIT 2000`
@@ -250,10 +300,14 @@ function construirSnapshot(): Record<string, unknown> {
   const devAyer = queryOne<{ monto: number }>(
     `SELECT COALESCE(SUM(total),0) as monto FROM devoluciones WHERE date(fecha) = date('now','-1 day','localtime')`
   )
+  const mesAnterior = `strftime('%Y-%m','now','localtime','start of month','-1 month')`
   const mesPasado = queryOne<{ total: number; num: number }>(
-    `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as num FROM ventas
-     WHERE estado = 'completada'
-       AND strftime('%Y-%m', fecha) = strftime('%Y-%m','now','localtime','start of month','-1 month')`
+    `SELECT COALESCE(SUM(total),0) as total, COALESCE(SUM(${cuentaVenta('ventas')}),0) as num FROM ventas
+     WHERE estado = 'completada' AND strftime('%Y-%m', fecha) = ${mesAnterior}`
+  )
+  const devMesPasado = queryOne<{ monto: number }>(
+    `SELECT COALESCE(SUM(total),0) as monto FROM devoluciones
+     WHERE strftime('%Y-%m', fecha) = ${mesAnterior}`
   )
   // Cierres de caja (arqueos): esperado vs contado y diferencia (descuadres)
   const cierres = query<{
@@ -295,8 +349,14 @@ function construirSnapshot(): Record<string, unknown> {
     },
     mes: {
       ventas_num: mes?.num ?? 0,
-      total: mes?.total ?? 0,
-      utilidad: r((utilMes?.ingreso ?? 0) - (utilMes?.costo ?? 0))
+      // `total` es el NETO del mes (ventas − devoluciones), que es lo que muestra
+      // el Panel; el bruto queda aparte por si se necesita el desglose.
+      total: Math.max(0, (mes?.bruto ?? 0) - (devMes?.monto ?? 0)),
+      bruto: mes?.bruto ?? 0,
+      devoluciones: devMes?.monto ?? 0,
+      utilidad: r(
+        (utilMes?.ingreso ?? 0) - (utilDevMes?.base ?? 0) - ((utilMes?.costo ?? 0) - (utilDevMes?.costo ?? 0))
+      )
     },
     caja: caja
       ? { abierta: true, desde: caja.fecha_apertura, base: caja.monto_inicial }
@@ -317,7 +377,7 @@ function construirSnapshot(): Record<string, unknown> {
     ventas_dias: ventasDias,
     comparativo: {
       ayer_neto: (vAyer?.bruto ?? 0) - (devAyer?.monto ?? 0),
-      mes_pasado_total: mesPasado?.total ?? 0,
+      mes_pasado_total: Math.max(0, (mesPasado?.total ?? 0) - (devMesPasado?.monto ?? 0)),
       mes_pasado_num: mesPasado?.num ?? 0
     },
     cierres_caja: cierres,
@@ -334,8 +394,13 @@ export async function subirResumen(): Promise<void> {
   if (!licencia) return
   const nombre = getCfg('tienda_nombre') ?? ''
 
+  // `num` no cuenta las ventas devueltas por completo (igual que el resto del sistema)
   const ventasDia = query<{ fecha: string; num: number; total: number }>(
-    `SELECT date(fecha) as fecha, COUNT(*) as num, COALESCE(SUM(total),0) as total
+    `SELECT date(fecha) as fecha,
+            COALESCE(SUM(CASE WHEN ventas.total > 0 AND
+              COALESCE((SELECT SUM(dd.total) FROM devoluciones dd WHERE dd.venta_id = ventas.id),0) >= ventas.total
+            THEN 0 ELSE 1 END),0) as num,
+            COALESCE(SUM(total),0) as total
      FROM ventas
      WHERE estado = 'completada' AND date(fecha) >= date('now','-30 days','localtime')
      GROUP BY date(fecha)`

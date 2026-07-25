@@ -140,6 +140,8 @@
       .badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 20px; font-size: 12px; font-weight: 650; }
       .badge.on { background: rgba(22, 163, 74, 0.13); color: var(--green); }
       .badge.off { background: rgba(217, 119, 6, 0.14); color: var(--amber); }
+      .badge.dev { background: rgba(217, 119, 6, 0.14); color: var(--amber); padding: 2px 8px; font-size: 11px; margin-left: 6px; }
+      .tachado { text-decoration: line-through; opacity: 0.55; margin-right: 6px; }
       .dot-live { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 
       /* chart */
@@ -347,7 +349,9 @@
         return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${filas.join('')}</tbody></table></div>`
       }
       function grafico(datos) {
-        const arr = (datos || []).slice(-14)
+        // El total del día ya viene neto (ventas − devoluciones): si quedó
+        // negativo se dibuja en 0 para no sacar barras hacia abajo.
+        const arr = (datos || []).slice(-14).map((d) => ({ ...d, total: Math.max(0, Number(d.total) || 0) }))
         const max = Math.max(1, ...arr.map((d) => Number(d.total) || 0))
         if (!arr.length) return `<div class="empty">Aún no hay ventas registradas.</div>`
         return `<div class="chart">${arr
@@ -400,6 +404,22 @@
         document.body.removeChild(a)
         URL.revokeObjectURL(a.href)
       }
+      // Detalle de ventas: cada línea trae las unidades devueltas, así el Excel
+      // muestra lo que realmente quedó vendido y no infla los totales.
+      const CAB_DETALLE = [
+        'N° venta', 'Fecha', 'Cliente', 'Método', 'Producto', 'Talla', 'Color',
+        'Cantidad', 'Devuelto', 'Cant. neta', 'Precio unit.', 'Subtotal neto'
+      ]
+      function netoLinea(x) {
+        const neta = Math.max(0, (Number(x.cantidad) || 0) - (Number(x.devuelto) || 0))
+        return neta * (Number(x.precio_unitario) || 0)
+      }
+      function filaDetalle(x) {
+        const dev = Number(x.devuelto) || 0
+        const neta = Math.max(0, (Number(x.cantidad) || 0) - dev)
+        return [x.numero, x.fecha, x.cliente, x.metodo, x.producto, x.talla, x.color,
+          x.cantidad, dev, neta, x.precio_unitario, netoLinea(x)]
+      }
       function expInventario() {
         const lista = (DATA.snapshot && DATA.snapshot.inventario && DATA.snapshot.inventario.lista) || []
         descargarCSV(
@@ -412,22 +432,20 @@
         const v = (DATA.snapshot && DATA.snapshot.ventas_recientes) || []
         descargarCSV(
           'ventas-recientes.csv',
-          ['N° venta', 'Fecha', 'Método', 'Total'],
-          v.map((x) => [x.numero, x.fecha, x.metodo, x.total])
+          ['N° venta', 'Fecha', 'Método', 'Total', 'Devuelto', 'Total neto', 'Estado'],
+          v.map((x) => {
+            const dev = Number(x.devuelto) || 0
+            const tot = Number(x.total) || 0
+            return [x.numero, x.fecha, x.metodo, tot, dev, tot - dev, dev <= 0 ? '' : dev >= tot ? 'Devuelta' : 'Devuelta en parte']
+          })
         )
       }
       function expVentasDetalle() {
         const d = (DATA.snapshot && DATA.snapshot.ventas_detalle) || []
-        const rows = d.map((x) => [
-          x.numero, x.fecha, x.cliente, x.metodo, x.producto, x.talla, x.color, x.cantidad, x.precio_unitario, x.subtotal
-        ])
-        const totalSub = d.reduce((a, x) => a + (Number(x.subtotal) || 0), 0)
-        rows.push(['', '', '', '', '', '', '', '', 'TOTAL', totalSub])
-        descargarCSV(
-          'ventas-detalle.csv',
-          ['N° venta', 'Fecha', 'Cliente', 'Método', 'Producto', 'Talla', 'Color', 'Cantidad', 'Precio unit.', 'Subtotal'],
-          rows
-        )
+        const rows = d.map((x) => filaDetalle(x))
+        const totalSub = d.reduce((a, x) => a + netoLinea(x), 0)
+        rows.push(['', '', '', '', '', '', '', '', '', '', 'TOTAL neto', totalSub])
+        descargarCSV('ventas-detalle.csv', CAB_DETALLE, rows)
       }
       function expTop() {
         const t = (DATA.snapshot && DATA.snapshot.top_mes) || []
@@ -500,10 +518,17 @@
       }
       function ventasRango() {
         const det = ((DATA.snapshot && DATA.snapshot.ventas_detalle) || []).filter((x) => enRango(x.fecha))
+        // Por venta: total facturado y total devuelto (sumando línea por línea).
+        // Una venta devuelta por completo no cuenta ni suma.
         const porVenta = {}
-        det.forEach((x) => { porVenta[x.numero] = Number(x.total_venta) || 0 })
-        const totalVentas = Object.values(porVenta).reduce((a, b) => a + b, 0)
-        return { det, numVentas: Object.keys(porVenta).length, totalVentas }
+        det.forEach((x) => {
+          const v = (porVenta[x.numero] = porVenta[x.numero] || { total: Number(x.total_venta) || 0, dev: 0 })
+          v.dev += (Number(x.devuelto) || 0) * (Number(x.precio_unitario) || 0)
+        })
+        const ventas = Object.values(porVenta)
+        const numVentas = ventas.filter((v) => !(v.total > 0 && v.dev >= v.total)).length
+        const totalVentas = ventas.reduce((a, v) => a + Math.max(0, v.total - v.dev), 0)
+        return { det, numVentas, totalVentas }
       }
       window.setRango = (campo, val) => { rango[campo] = val; render() }
       window.rangoRapido = (tipo) => {
@@ -514,18 +539,12 @@
       }
       window.descargarVentasRango = () => {
         const { det, totalVentas } = ventasRango()
-        const rows = det.map((x) => [
-          x.numero, x.fecha, x.cliente, x.metodo, x.producto, x.talla, x.color, x.cantidad, x.precio_unitario, x.subtotal
-        ])
-        const totalSub = det.reduce((a, x) => a + (Number(x.subtotal) || 0), 0)
-        rows.push(['', '', '', '', '', '', '', '', 'SUBTOTAL productos', totalSub])
-        rows.push(['', '', '', '', '', '', '', '', 'TOTAL ventas', totalVentas])
+        const rows = det.map((x) => filaDetalle(x))
+        const totalSub = det.reduce((a, x) => a + netoLinea(x), 0)
+        rows.push(['', '', '', '', '', '', '', '', '', '', 'SUBTOTAL productos (neto)', totalSub])
+        rows.push(['', '', '', '', '', '', '', '', '', '', 'TOTAL ventas (neto)', totalVentas])
         const suf = (rango.desde || 'inicio') + '_a_' + (rango.hasta || 'hoy')
-        descargarCSV(
-          'ventas_' + suf + '.csv',
-          ['N° venta', 'Fecha', 'Cliente', 'Método', 'Producto', 'Talla', 'Color', 'Cantidad', 'Precio unit.', 'Subtotal'],
-          rows
-        )
+        descargarCSV('ventas_' + suf + '.csv', CAB_DETALLE, rows)
       }
 
       // ---------- secciones ----------
@@ -568,7 +587,8 @@
         const kpis = [
           kpi('Ventas hoy', cop(h.neto), 'green', (h.ventas_num || 0) + ' venta(s)'),
           kpi('Ventas del mes', cop(mes.total), '', (mes.ventas_num || 0) + ' venta(s)'),
-          kpi('Ticket promedio hoy', cop(h.ventas_num ? (h.ventas_bruto || 0) / h.ventas_num : 0), '')
+          // Sobre el neto: si algo se devolvió, no infla el promedio.
+          kpi('Ticket promedio hoy', cop(h.ventas_num ? (h.neto || 0) / h.ventas_num : 0), '')
         ].join('')
         const maxMet = Math.max(1, ...met.map((m) => Number(m.total) || 0))
         const metCard = met.length
@@ -590,12 +610,16 @@
             <div class="head-tools">${fechaFiltro('ventas')}<button class="btn ghost sm" onclick="expVentas()">↓ CSV</button><button class="btn ghost sm" onclick="expVentasDetalle()">↓ Detalle (con productos)</button></div></div>
             <div class="card">${tabla(
               [{ t: 'N°' }, { t: 'Fecha' }, { t: 'Método' }, { t: 'Total', r: true }],
-              pg.items.map(
-                (v) =>
-                  `<tr><td>${esc(v.numero)}</td><td class="muted">${fmtFechaHora(v.fecha)}</td><td>${esc(
-                    v.metodo
-                  )}</td><td class="r">${cop(v.total)}</td></tr>`
-              )
+              pg.items.map((v) => {
+                // Si hubo devolución, se muestra el neto y se marca la venta.
+                const dev = Number(v.devuelto) || 0
+                const tot = Number(v.total) || 0
+                const marca = dev <= 0 ? '' : `<span class="badge dev">${dev >= tot ? 'Devuelta' : 'Devuelta en parte'}</span>`
+                const valor = dev <= 0 ? cop(tot) : `<span class="tachado">${cop(tot)}</span>${cop(tot - dev)}`
+                return `<tr><td>${esc(v.numero)}${marca}</td><td class="muted">${fmtFechaHora(v.fecha)}</td><td>${esc(
+                  v.metodo
+                )}</td><td class="r">${valor}</td></tr>`
+              })
             )}</div>${pager('ventas', pg)}</div>
           <div class="block"><div class="block-head"><h2>Métodos de pago (mes)</h2></div><div class="card">${metCard}</div></div>`
       }
@@ -695,7 +719,7 @@
               </div>
               <div class="muted small" style="margin-top:12px"><b>${num(rng.numVentas)}</b> venta(s) en el período · Total <b style="color:var(--green)">${cop(
                 rng.totalVentas
-              )}</b>. El Excel trae cada producto vendido con su detalle.</div>
+              )}</b>. Ya con las devoluciones descontadas. El Excel trae cada producto vendido con su detalle.</div>
             </div></div>
           <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
             (DATA.snapshot && DATA.snapshot.ventas_dias) || []

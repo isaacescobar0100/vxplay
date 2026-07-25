@@ -1109,25 +1109,47 @@ export function registerHandlers(): void {
     const fDd = usarSesion ? `d.sesion_id = ${sid}` : `date(d.fecha) BETWEEN date(?) AND date(?)`
     const p: any[] = usarSesion ? [] : [desde, hasta]
 
+    // Una venta devuelta COMPLETA ya no cuenta como venta (la plata se regresó),
+    // para que el conteo cuadre con el total neto que se muestra al lado.
+    // Las devoluciones parciales sí siguen contando: esa venta sí dejó dinero.
+    const cuentaComoVenta = `CASE WHEN ventas.total > 0 AND
+        COALESCE((SELECT SUM(d.total) FROM devoluciones d WHERE d.venta_id = ventas.id), 0) >= ventas.total
+      THEN 0 ELSE 1 END`
     const totales = queryOne(
-      `SELECT COUNT(*) as num_ventas, COALESCE(SUM(total),0) as total_vendido,
+      `SELECT COALESCE(SUM(${cuentaComoVenta}),0) as num_ventas,
+              COALESCE(SUM(total),0) as total_vendido,
               COALESCE(SUM(iva),0) as total_iva
        FROM ventas WHERE ${fV} AND estado='completada'`,
       p
     )
     // El gráfico de 7 días SIEMPRE es por fecha (histórico), no por caja.
+    // Las devoluciones restan del día de la venta (se fechan con ella), así que
+    // la barra muestra lo que realmente quedó vendido ese día.
     const porDia = query(
-      `SELECT date(fecha) as dia, COUNT(*) as ventas, SUM(total) as total
-       FROM ventas WHERE date(fecha) BETWEEN date(?) AND date(?) AND estado='completada'
-       GROUP BY date(fecha) ORDER BY dia`,
-      [desde, hasta]
+      `SELECT dia, SUM(ventas) as ventas, SUM(total) as total FROM (
+         SELECT date(fecha) as dia, ${cuentaComoVenta} as ventas, total as total
+         FROM ventas WHERE date(fecha) BETWEEN date(?) AND date(?) AND estado='completada'
+         UNION ALL
+         SELECT date(fecha), 0, -total
+         FROM devoluciones WHERE date(fecha) BETWEEN date(?) AND date(?)
+       ) GROUP BY dia ORDER BY dia`,
+      [desde, hasta, desde, hasta]
     )
+    // "Más vendidos" descuenta lo devuelto (unidades y plata): si volvió al
+    // estante, no se vendió. Un producto devuelto por completo desaparece.
     const topProductos = query(
-      `SELECT vi.producto_nombre, SUM(vi.cantidad) as unidades, SUM(vi.subtotal) as total
-       FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
-       WHERE ${fVv}
-       GROUP BY vi.producto_nombre ORDER BY unidades DESC LIMIT 10`,
-      p
+      `SELECT producto_nombre, SUM(unidades) as unidades, SUM(total) as total FROM (
+         SELECT vi.producto_nombre as producto_nombre, vi.cantidad as unidades, vi.subtotal as total
+         FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
+         WHERE ${fVv} AND v.estado='completada'
+         UNION ALL
+         SELECT di.producto_nombre, -di.cantidad, -di.subtotal
+         FROM devolucion_items di JOIN devoluciones d ON d.id = di.devolucion_id
+         WHERE ${fDd}
+       ) GROUP BY producto_nombre
+       HAVING SUM(unidades) > 0
+       ORDER BY unidades DESC LIMIT 10`,
+      [...p, ...p]
     )
     const porMetodo = query(
       `SELECT metodo_pago, COUNT(*) as ventas, SUM(total) as total
@@ -1179,7 +1201,7 @@ export function registerHandlers(): void {
     // Fiado (ventas a crédito) vs cobrado (efectivo/tarjeta/transferencia)
     const fiado =
       queryOne<{ total: number; n: number }>(
-        `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n
+        `SELECT COALESCE(SUM(total),0) as total, COALESCE(SUM(${cuentaComoVenta}),0) as n
          FROM ventas WHERE ${fV} AND estado='completada' AND metodo_pago='fiado'`,
         p
       ) ?? { total: 0, n: 0 }
