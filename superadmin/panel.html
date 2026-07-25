@@ -528,7 +528,10 @@
         const ventas = Object.values(porVenta)
         const numVentas = ventas.filter((v) => !(v.total > 0 && v.dev >= v.total)).length
         const totalVentas = ventas.reduce((a, v) => a + Math.max(0, v.total - v.dev), 0)
-        return { det, numVentas, totalVentas }
+        // Los POS anteriores a la 1.1.4 no mandan `devuelto`: ahí no hay nada que
+        // descontar y no se puede prometer que el total vaya neto.
+        const conDevoluciones = det.some((x) => x.devuelto !== undefined)
+        return { det, numVentas, totalVentas, conDevoluciones }
       }
       window.setRango = (campo, val) => { rango[campo] = val; render() }
       window.rangoRapido = (tipo) => {
@@ -719,7 +722,9 @@
               </div>
               <div class="muted small" style="margin-top:12px"><b>${num(rng.numVentas)}</b> venta(s) en el período · Total <b style="color:var(--green)">${cop(
                 rng.totalVentas
-              )}</b>. Ya con las devoluciones descontadas. El Excel trae cada producto vendido con su detalle.</div>
+              )}</b>.${
+                rng.conDevoluciones ? ' Ya con las devoluciones descontadas.' : ''
+              } El Excel trae cada producto vendido con su detalle.</div>
             </div></div>
           <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
             (DATA.snapshot && DATA.snapshot.ventas_dias) || []
