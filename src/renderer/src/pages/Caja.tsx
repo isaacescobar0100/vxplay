@@ -192,6 +192,24 @@ export default function Caja({ usuario }: { usuario: Usuario }): JSX.Element {
                 ))}
               </div>
             )}
+            {(resumen?.ventas_por_vendedor ?? []).length > 1 && (
+              <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                <div className="total-line" style={{ fontWeight: 600 }}>
+                  <span>Ventas por vendedor</span>
+                </div>
+                <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
+                  Quién atendió cada venta del turno, ya con las devoluciones descontadas.
+                </div>
+                {(resumen?.ventas_por_vendedor ?? []).map((v: any, i: number) => (
+                  <div key={i} className="total-line" style={{ fontSize: 13 }}>
+                    <span>
+                      {v.vendedor} <span className="muted">· {v.ventas} venta(s)</span>
+                    </span>
+                    <span>{cop(v.total)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <button className="btn-sm" style={{ marginTop: 12 }} onClick={cargar}>
               Actualizar
             </button>

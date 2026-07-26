@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { Usuario } from '../App'
 import { cop } from '../util'
 import Icon from '../components/Icon'
-import { avisar } from '../dialogo'
+// `confirmar` se renombra: en este archivo ya hay una función local con ese nombre.
+import { avisar, confirmar as preguntar } from '../dialogo'
 
 interface Variante {
   id: number
@@ -15,6 +16,7 @@ interface Producto {
   id: number
   nombre: string
   precio_venta: number
+  precio_compra?: number
   iva_porcentaje: number
   variantes: Variante[]
 }
@@ -25,6 +27,8 @@ export interface CartItem {
   talla?: string
   color?: string
   precio_unitario: number
+  // Lo que costó la prenda: sirve para avisar si la negocian por debajo del costo.
+  precio_compra: number
   iva_porcentaje: number
   cantidad: number
   stock: number
@@ -90,6 +94,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
           talla: v.talla,
           color: v.color,
           precio_unitario: p.precio_venta,
+          precio_compra: p.precio_compra ?? 0,
           iva_porcentaje: p.iva_porcentaje,
           cantidad: 1,
           stock: v.stock
@@ -142,6 +147,7 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
           id: v.producto_id,
           nombre: v.producto_nombre,
           precio_venta: v.precio_venta,
+          precio_compra: v.precio_compra,
           iva_porcentaje: v.iva_porcentaje,
           variantes: []
         } as Producto,
@@ -293,7 +299,9 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
               Agrega productos para iniciar la venta.
             </p>
           ) : (
-            cart.map((i) => (
+            cart.map((i) => {
+              const enPerdida = i.precio_compra > 0 && i.precio_unitario < i.precio_compra
+              return (
               <div key={i.key} className="cart-item">
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{i.producto_nombre}</div>
@@ -302,7 +310,14 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
                     style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}
                   >
                     {[i.talla && 'T:' + i.talla, i.color].filter(Boolean).join(' · ')}
-                    <span title="Precio editable: puedes cambiarlo si negocian otro valor" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                    <span
+                      title={
+                        enPerdida
+                          ? `Por debajo del costo: esta prenda costó ${cop(i.precio_compra)}`
+                          : 'Precio editable: puedes cambiarlo si negocian otro valor'
+                      }
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}
+                    >
                       $
                       <input
                         type="number"
@@ -313,13 +328,19 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
                           width: 74,
                           padding: '2px 6px',
                           fontSize: 12,
-                          border: '1px solid var(--border)',
+                          border: '1px solid ' + (enPerdida ? 'var(--red)' : 'var(--border)'),
                           borderRadius: 6,
                           background: 'var(--panel-2)',
-                          color: 'var(--text)'
+                          color: enPerdida ? 'var(--red)' : 'var(--text)',
+                          fontWeight: enPerdida ? 700 : 400
                         }}
                       />
                     </span>
+                    {enPerdida && (
+                      <span style={{ color: 'var(--red)', fontWeight: 600 }}>
+                        costó {cop(i.precio_compra)}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button className="qty-btn" onClick={() => cambiarCantidad(i.key, -1)}>
@@ -333,7 +354,8 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
                   {cop(i.precio_unitario * i.cantidad)}
                 </div>
               </div>
-            ))
+              )
+            })
           )}
         </div>
         <div className="cart-foot">
@@ -467,6 +489,10 @@ export function Checkout({
   const [propina, setPropina] = useState<number>(0)
   const [meseros, setMeseros] = useState<any[]>([])
   const [propinaMesero, setPropinaMesero] = useState<number>(usuario.id)
+  // Quién atendió la venta. Se mantiene entre ventas: en un turno suele atender
+  // la misma persona, así no hay que elegirla cada vez.
+  const [vendedorId, setVendedorId] = useState<number>(usuario.id)
+  const [vendedores, setVendedores] = useState<any[]>([])
 
   useEffect(() => {
     window.api.configGetAll().then((c: any) => {
@@ -476,7 +502,13 @@ export function Checkout({
       setPropinaModo(c.propina_modo ?? 'efectivo')
       setPropinaPct(Number(c.propina_pct ?? 10) || 10)
     })
-    window.api.usuariosList().then((u: any) => setMeseros(u.filter((x: any) => x.activo)))
+    window.api.usuariosList().then((u: any) => {
+      const activos = u.filter((x: any) => x.activo)
+      setMeseros(activos)
+      // El desplegable de vendedor solo tiene sentido si hay más de una persona;
+      // con una sola, la venta queda a su nombre sin preguntar nada.
+      setVendedores(activos)
+    })
   }, [])
 
   // Descuento y pago mixto
@@ -541,6 +573,10 @@ export function Checkout({
   const propinaEnFactura = propinaOn && propinaModo === 'factura' && !mixto ? propina : 0
   const pagarTotal = totalFinal + propinaEnFactura
 
+  // Líneas que se están vendiendo por menos de lo que costó la prenda.
+  // Se ignora el costo en 0 (producto sin costo cargado): ahí no hay con qué comparar.
+  const bajoCosto = cart.filter((i) => i.precio_compra > 0 && i.precio_unitario < i.precio_compra)
+
   const cambio = Math.max(0, recibido - pagarTotal)
   const pagadoMixto = pagoEfectivo + pagoTarjeta + pagoTransfer
   const faltaMixto = Math.max(0, pagarTotal - pagadoMixto)
@@ -558,6 +594,22 @@ export function Checkout({
     if (mixto && faltaMixto > 0) {
       avisar('Los pagos no cubren el total. Falta ' + cop(faltaMixto))
       return
+    }
+    // Aviso de venta a pérdida: el precio es negociable, pero que quede claro
+    // cuándo se está vendiendo por debajo de lo que costó la prenda.
+    if (bajoCosto.length > 0) {
+      const detalle = bajoCosto
+        .map((i) => `• ${i.producto_nombre}: se vende a ${cop(i.precio_unitario)} y costó ${cop(i.precio_compra)}`)
+        .join('\n')
+      const perdida = bajoCosto.reduce((s, i) => s + (i.precio_compra - i.precio_unitario) * i.cantidad, 0)
+      if (
+        !(await preguntar(
+          `Estás vendiendo por debajo del costo:\n\n${detalle}\n\nPierdes ${cop(perdida)} en esta venta. ¿Cobrar de todas formas?`,
+          'Venta a pérdida'
+        ))
+      ) {
+        return
+      }
     }
 
     // Construir método y lista de pagos
@@ -581,6 +633,7 @@ export function Checkout({
     setProcesando(true)
     const payload = {
       usuario_id: usuario.id,
+      vendedor_id: vendedorId,
       cliente_id: clienteId,
       subtotal: subtotalFinal,
       iva: ivaFinal,
@@ -640,6 +693,18 @@ export function Checkout({
     <div className="modal-overlay">
       <div className="modal" style={{ width: 620 }}>
         <h2>Cobrar {cop(totalFinal)}</h2>
+        {vendedores.length > 1 && (
+          <div className="field">
+            <label>¿Quién atendió esta venta?</label>
+            <select value={vendedorId} onChange={(e) => setVendedorId(Number(e.target.value))}>
+              {vendedores.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="grid-2">
           <div>
             <label>Método de pago</label>

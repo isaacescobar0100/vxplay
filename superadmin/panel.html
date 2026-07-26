@@ -555,7 +555,14 @@
         const h = s.hoy || {}, mes = s.mes || {}, caja = s.caja || {}
         const kpis = [
           kpi('Ventas de hoy', cop(h.neto), 'green', (h.ventas_num || 0) + ' venta(s)'),
-          kpi('Utilidad hoy', cop(h.utilidad), '', 'Ganancia neta ' + cop(h.ganancia_neta)),
+          // En rojo si el turno cerró en pérdida: taparlo con $0 le ocultaría al
+          // dueño justo el dato que necesita ver.
+          kpi(
+            'Utilidad hoy',
+            cop(h.utilidad),
+            (Number(h.utilidad) || 0) < 0 ? 'red' : '',
+            'Ganancia neta ' + cop(h.ganancia_neta)
+          ),
           kpi('Gastos hoy', cop(h.gastos), h.gastos > 0 ? 'amber' : ''),
           kpi('Ventas del mes', cop(mes.total), '', (mes.ventas_num || 0) + ' venta(s)')
         ].join('')
@@ -580,7 +587,26 @@
           <div class="block"><div class="block-head"><h2>Más vendidos hoy</h2></div><div class="card">${tabla(
             [{ t: 'Producto' }, { t: 'Cant.', r: true }, { t: 'Total', r: true }],
             top.map((t) => `<tr><td class="name-cell">${esc(t.nombre)}</td><td class="r">${num(t.cantidad)}</td><td class="r">${cop(t.total)}</td></tr>`)
-          )}</div></div>`
+          )}</div></div>
+          ${bloqueVendedores(s.vendedores_hoy, 'Ventas por vendedor (turno actual)')}`
+      }
+
+      // Los POS anteriores a la 1.1.5 no mandan vendedores: en ese caso no se
+      // muestra la sección, en vez de dejar una tabla vacía sin explicación.
+      function bloqueVendedores(lista, titulo) {
+        if (!Array.isArray(lista) || !lista.length) return ''
+        return `<div class="block"><div class="block-head"><h2>${titulo}</h2></div><div class="card">${tabla(
+          [{ t: 'Vendedor' }, { t: 'Ventas', r: true }, { t: 'Total', r: true }, { t: 'Utilidad', r: true }],
+          lista.map(
+            (v) =>
+              `<tr><td class="name-cell">${esc(v.nombre)}</td><td class="r">${num(v.ventas)}</td><td class="r">${cop(
+                v.total
+              )}</td><td class="r" style="color:${
+                (Number(v.utilidad) || 0) < 0 ? 'var(--red)' : 'inherit'
+              }">${cop(v.utilidad)}</td></tr>`
+          )
+        )}</div>
+        <p class="muted small" style="margin-top:10px">Ya con las devoluciones descontadas: si a un vendedor le devolvieron una venta, no le suma.</p></div>`
       }
 
       function secVentas(s) {
@@ -729,6 +755,7 @@
           <div class="block"><div class="block-head"><h2>Ventas de los últimos días</h2></div><div class="card pad">${grafico(
             (DATA.snapshot && DATA.snapshot.ventas_dias) || []
           )}</div></div>
+          ${bloqueVendedores(s.vendedores_mes, 'Ventas por vendedor (mes)')}
           <div class="block"><div class="block-head"><h2>Más vendidos del mes</h2><button class="btn ghost sm" onclick="expTop()">↓ Exportar CSV</button></div>
             <div class="card">${tabla(
               [{ t: 'Producto' }, { t: 'Unidades', r: true }, { t: 'Total', r: true }],

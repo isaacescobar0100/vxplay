@@ -24,6 +24,16 @@ interface Producto {
   variantes: Variante[]
 }
 
+/**
+ * Electron antepone "Error invoking remote method '...': Error: " al mensaje que
+ * lanza el backend; se quita para que el cajero lea solo el aviso útil.
+ */
+function limpiarError(e: any): string {
+  return String(e?.message ?? e)
+    .replace(/^Error invoking remote method '[^']*':\s*/, '')
+    .replace(/^Error:\s*/, '')
+}
+
 /** Fecha de hoy en formato YYYY-MM-DD según la hora local (no UTC). */
 function hoyLocalStr(): string {
   const d = new Date()
@@ -48,6 +58,8 @@ export default function Inventario(): JSX.Element {
   const [diaInv, setDiaInv] = useState('')
   const [editando, setEditando] = useState<Producto | null>(null)
   const [stockDe, setStockDe] = useState<any | null>(null)
+  // Nota que se muestra dentro de la pantalla de Stock al restaurar un producto.
+  const [notaStock, setNotaStock] = useState<string | null>(null)
   const [categorias, setCategorias] = useState<any[]>([])
   const [tipoNegocio, setTipoNegocio] = useState('ropa')
   const [dianOn, setDianOn] = useState(false)
@@ -81,6 +93,70 @@ export default function Inventario(): JSX.Element {
     cargar()
   }
 
+  // ---- Papelera: productos eliminados ----
+  const [verEliminados, setVerEliminados] = useState(false)
+  const [eliminados, setEliminados] = useState<any[]>([])
+
+  async function cargarEliminados(): Promise<void> {
+    setEliminados((await window.api.productosEliminados()) as any[])
+  }
+
+  async function abrirEliminados(): Promise<void> {
+    await cargarEliminados()
+    setVerEliminados(true)
+  }
+
+  async function restaurar(p: any): Promise<void> {
+    // El stock vuelve congelado como estaba al eliminarlo: si en el intermedio
+    // hicieron conteo, esas unidades no reflejan lo que hay en la tienda.
+    const unidades = p.stock ?? 0
+    if (
+      !(await confirmar(
+        `¿Restaurar "${p.nombre}"?\n\nVuelve al catálogo con ${unidades} unidad(es), el stock que tenía cuando lo eliminaste.`
+      ))
+    ) {
+      return
+    }
+    try {
+      await window.api.productosRestaurar(p.id)
+      await cargarEliminados()
+      cargar()
+      setVerEliminados(false)
+      // Se abre directo el ajuste de stock: es EL momento de contar, porque esas
+      // unidades quedaron congeladas desde que se eliminó el producto.
+      const prod: any = await window.api.productosGet(p.id)
+      setNotaStock(
+        `"${p.nombre}" volvió al catálogo con ${unidades} unidad(es), el stock que tenía cuando lo eliminaste. ` +
+          `Cuenta lo que hay en la tienda y escribe el número real. Si ya coincide, cierra sin cambiar nada.`
+      )
+      setStockDe(prod)
+    } catch (e: any) {
+      avisar(limpiarError(e))
+    }
+  }
+
+  async function liberarSku(p: any): Promise<void> {
+    const conHistorial = (p.usos ?? 0) > 0
+    const detalle = conHistorial
+      ? `Tiene ventas o movimientos registrados, así que el producto se conserva para no dañar el historial: solo se le quita el SKU.`
+      : `Nunca se vendió ni se movió, así que se borrará por completo.`
+    if (!(await confirmar(`Liberar el SKU ${p.sku} de "${p.nombre}"?\n\n${detalle}\n\nDespués podrás usar ese SKU en otro producto.`))) {
+      return
+    }
+    try {
+      const r: any = await window.api.productosLiberarSku(p.id)
+      await cargarEliminados()
+      cargar()
+      avisar(
+        r.modo === 'borrado'
+          ? `"${r.nombre}" se borró por completo. El SKU ${r.sku} ya está libre.`
+          : `El SKU ${r.sku} quedó libre. "${r.nombre}" se conserva sin SKU porque tiene historial de ventas.`
+      )
+    } catch (e: any) {
+      avisar(limpiarError(e))
+    }
+  }
+
   const productosVisibles = diaInv
     ? productos.filter((p) => (p.fecha_inventario ?? '').slice(0, 10) === diaInv)
     : productos
@@ -112,6 +188,9 @@ export default function Inventario(): JSX.Element {
         </button>
         <button className="btn-icon" onClick={() => setImportar(true)}>
           <Icon name="box" size={16} /> Importar Excel
+        </button>
+        <button className="btn-icon" onClick={abrirEliminados} title="Productos eliminados: restaurar o liberar su SKU">
+          <Icon name="trash" size={16} /> Eliminados
         </button>
         <button
           className="btn-primary btn-icon"
@@ -188,6 +267,65 @@ export default function Inventario(): JSX.Element {
         </table>
       </div>
 
+      {verEliminados && (
+        <div className="modal-overlay" onClick={() => setVerEliminados(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 720 }}>
+            <h2>Productos eliminados</h2>
+            <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+              No se borran de verdad para no dañar el historial de ventas, y siguen ocupando su SKU.
+              <b> Restaurar</b> los devuelve al catálogo. <b>Liberar SKU</b> deja esa referencia disponible
+              para otro producto.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>SKU</th>
+                  <th className="text-right">Stock</th>
+                  <th>Historial</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {eliminados.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <b>{p.nombre}</b>
+                      <div className="muted" style={{ fontSize: 12 }}>{p.categoria ?? 'Sin categoría'}</div>
+                    </td>
+                    <td className="muted">{p.sku ?? '— (ya liberado)'}</td>
+                    <td className="text-right muted">{p.stock ?? 0}</td>
+                    <td className="muted" style={{ fontSize: 12 }}>
+                      {(p.usos ?? 0) > 0 ? `${p.usos} movimiento(s)` : 'sin movimientos'}
+                    </td>
+                    <td className="text-right">
+                      <button className="btn-sm" onClick={() => restaurar(p)}>
+                        Restaurar
+                      </button>{' '}
+                      {p.sku && (
+                        <button className="btn-sm btn-danger" onClick={() => liberarSku(p)}>
+                          Liberar SKU
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {eliminados.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="muted" style={{ textAlign: 'center', padding: 30 }}>
+                      No hay productos eliminados.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div className="modal-foot">
+              <button onClick={() => setVerEliminados(false)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editando && (
         <ProductoModal
           producto={editando}
@@ -206,7 +344,11 @@ export default function Inventario(): JSX.Element {
       {stockDe && (
         <StockModal
           producto={stockDe}
-          onClose={() => setStockDe(null)}
+          nota={notaStock}
+          onClose={() => {
+            setStockDe(null)
+            setNotaStock(null)
+          }}
           onChanged={cargar}
         />
       )}
@@ -478,10 +620,12 @@ function EtiquetasModal({ onClose }: { onClose: () => void }): JSX.Element {
 // ---------- Modal de Stock: Kardex + ajuste ----------
 function StockModal({
   producto,
+  nota,
   onClose,
   onChanged
 }: {
   producto: any
+  nota?: string | null
   onClose: () => void
   onChanged: () => void
 }): JSX.Element {
@@ -532,6 +676,26 @@ function StockModal({
         <h2 className="section-title">
           <Icon name="box" size={20} /> Stock — {producto.nombre}
         </h2>
+
+        {nota && !kardexDe && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'flex-start',
+              border: '1px solid var(--amber)',
+              background: 'rgba(217, 119, 6, 0.12)',
+              borderRadius: 8,
+              padding: '10px 12px',
+              marginBottom: 12,
+              fontSize: 13.5,
+              lineHeight: 1.5
+            }}
+          >
+            <Icon name="alert" size={17} />
+            <span>{nota}</span>
+          </div>
+        )}
 
         {!kardexDe ? (
           <>
@@ -732,13 +896,17 @@ export function ProductoModal({
       avisar('El nombre es obligatorio')
       return
     }
+    if (!(form.sku ?? '').trim()) {
+      avisar('Se requiere el SKU / Referencia.\nEs el código con el que identificas el producto (ej. CAM001).')
+      return
+    }
     if (guardandoProd) return
     setGuardandoProd(true)
     try {
       await window.api.productosSave({ ...form, fecha })
       onSaved()
     } catch (e: any) {
-      avisar('No se pudo guardar el producto:\n' + (e?.message ?? e))
+      avisar('No se pudo guardar el producto:\n' + limpiarError(e))
     } finally {
       setGuardandoProd(false)
     }
@@ -756,8 +924,12 @@ export function ProductoModal({
 
         <div className="grid-2">
           <div className="field">
-            <label>SKU / Referencia</label>
-            <input value={form.sku ?? ''} onChange={(e) => set('sku', e.target.value)} />
+            <label>SKU / Referencia *</label>
+            <input
+              value={form.sku ?? ''}
+              onChange={(e) => set('sku', e.target.value)}
+              placeholder="Ej. CAM001"
+            />
           </div>
           <div className="field">
             <label>Marca</label>

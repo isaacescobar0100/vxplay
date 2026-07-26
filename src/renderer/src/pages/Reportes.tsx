@@ -164,6 +164,37 @@ export default function Reportes(): JSX.Element {
         )}
       </div>
 
+      {(data?.porVendedor ?? []).length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h3 className="section-title">
+            <Icon name="users" size={18} /> Ventas por vendedor
+          </h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Vendedor</th>
+                <th className="text-right">Ventas</th>
+                <th className="text-right">Total vendido</th>
+                <th className="text-right">Utilidad</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.porVendedor ?? []).map((v: any, i: number) => (
+                <tr key={i}>
+                  <td>{v.vendedor}</td>
+                  <td className="text-right">{v.ventas}</td>
+                  <td className="text-right">{cop(v.total)}</td>
+                  <td className="text-right">{cop(Math.max(0, v.utilidad ?? 0))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+            Ya con las devoluciones descontadas: si a un vendedor le devolvieron una venta, no le suma.
+          </p>
+        </div>
+      )}
+
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div className="card" style={{ flex: 1 }}>
           <h3 className="section-title">

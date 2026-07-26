@@ -326,6 +326,13 @@ function migrateSchema(): void {
   if (!cols.find((c) => c.name === 'propina')) {
     db.run('ALTER TABLE ventas ADD COLUMN propina INTEGER NOT NULL DEFAULT 0')
   }
+  // Quién ATENDIÓ la venta (para comisiones), que no siempre es quien opera la
+  // caja. Las ventas viejas se atribuyen a quien las registró, así el reporte
+  // por vendedor sirve desde el primer día y no arranca vacío.
+  if (!cols.find((c) => c.name === 'vendedor_id')) {
+    db.run('ALTER TABLE ventas ADD COLUMN vendedor_id INTEGER REFERENCES usuarios(id)')
+    db.run('UPDATE ventas SET vendedor_id = usuario_id WHERE vendedor_id IS NULL')
+  }
 
   // Corrección única: alinear la fecha de las devoluciones VIEJAS a la fecha de
   // su venta, para que resten en el mismo período (antes se guardaban con la

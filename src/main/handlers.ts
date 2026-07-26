@@ -1,5 +1,6 @@
 import { ipcMain, dialog, app } from 'electron'
 import { writeFileSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { query, queryOne, insert, run, transaction, persist, getDb } from './db'
 import { facturarVenta, probarConexion } from './dian'
 import { imprimirTicket, imprimirCierre, listarImpresoras, imprimirEtiquetas, etiquetasPdf, imprimirPrecuenta } from './printer'
@@ -59,8 +60,10 @@ export function registerHandlers(): void {
 
   // ---------- AUTENTICACION ----------
   ipcMain.handle('auth:login', (_e, usuario: string, password: string) => {
+    // Los usuarios "#..." son vendedores de piso sin acceso a la app: existen
+    // solo para atribuirles ventas y nunca deben poder iniciar sesión.
     const user = queryOne<any>(
-      'SELECT id, nombre, usuario, rol, password FROM usuarios WHERE usuario = ? AND activo = 1',
+      "SELECT id, nombre, usuario, rol, password FROM usuarios WHERE usuario = ? AND activo = 1 AND usuario NOT LIKE '#%'",
       [usuario]
     )
     if (!user || !verifyPassword(password, user.password)) return null
@@ -73,13 +76,37 @@ export function registerHandlers(): void {
   )
 
   ipcMain.handle('usuarios:save', (_e, data: any) => {
+    const rol = data.rol ?? 'cajero'
+    const acceso = String(data.usuario ?? '').trim()
+    // Un vendedor de piso puede no entrar nunca a la app: solo se le atribuyen
+    // ventas. Esas cuentas llevan un identificador interno "#v<id>" que nadie
+    // escribe y una clave aleatoria imposible de adivinar. Además `auth:login`
+    // rechaza cualquier usuario que empiece por "#".
+    const sinAcceso = !acceso
+    if (sinAcceso && rol !== 'vendedor') {
+      throw new Error('Nombre de acceso obligatorio. Solo los vendedores pueden quedar sin acceso a la app.')
+    }
+    if (acceso.startsWith('#')) {
+      throw new Error('El nombre de acceso no puede empezar por "#".')
+    }
+    if (acceso) {
+      const repetido = queryOne<{ id: number }>(
+        'SELECT id FROM usuarios WHERE usuario = ? COLLATE NOCASE AND id <> ?',
+        [acceso, data.id ?? -1]
+      )
+      if (repetido) throw new Error('Ya existe un usuario con ese nombre de acceso')
+    }
+
     if (data.id) {
-      // Actualizar; solo cambia la contraseña si se envió una nueva
+      // Si no se envió nombre de acceso, se conserva el que ya tenía (puede ser
+      // el interno "#v<id>" de un vendedor sin acceso).
+      const actual = queryOne<{ usuario: string }>('SELECT usuario FROM usuarios WHERE id = ?', [data.id])
+      const usuarioFinal = acceso || actual?.usuario || '#v' + data.id
       if (data.password) {
         run('UPDATE usuarios SET nombre=?, usuario=?, rol=?, activo=?, password=? WHERE id=?', [
           data.nombre,
-          data.usuario,
-          data.rol,
+          usuarioFinal,
+          rol,
           data.activo ? 1 : 0,
           hashPassword(data.password),
           data.id
@@ -87,24 +114,27 @@ export function registerHandlers(): void {
       } else {
         run('UPDATE usuarios SET nombre=?, usuario=?, rol=?, activo=? WHERE id=?', [
           data.nombre,
-          data.usuario,
-          data.rol,
+          usuarioFinal,
+          rol,
           data.activo ? 1 : 0,
           data.id
         ])
       }
       return data.id
     }
-    // Crear
-    const existe = queryOne('SELECT id FROM usuarios WHERE usuario = ?', [data.usuario])
-    if (existe) throw new Error('Ya existe un usuario con ese nombre de acceso')
-    return insert('INSERT INTO usuarios (nombre, usuario, rol, activo, password) VALUES (?,?,?,?,?)', [
+
+    // Crear. La clave siempre se guarda hasheada: nunca en texto plano, porque
+    // verifyPassword compara literal cuando el valor no es un hash.
+    const clave = sinAcceso ? randomUUID() : data.password || '1234'
+    const id = insert('INSERT INTO usuarios (nombre, usuario, rol, activo, password) VALUES (?,?,?,?,?)', [
       data.nombre,
-      data.usuario,
-      data.rol ?? 'cajero',
+      acceso || '#nuevo-' + randomUUID(),
+      rol,
       data.activo === false ? 0 : 1,
-      hashPassword(data.password || '1234')
+      hashPassword(clave)
     ])
+    if (sinAcceso) run('UPDATE usuarios SET usuario = ? WHERE id = ?', ['#v' + id, id])
+    return id
   })
 
   ipcMain.handle('usuarios:toggle', (_e, id: number, activo: boolean) => {
@@ -244,8 +274,112 @@ export function registerHandlers(): void {
     return p
   })
 
+  // Papelera: los productos eliminados siguen en la base (para no romper el
+  // historial de ventas) y siguen ocupando su SKU. `usos` dice si tienen
+  // movimientos: si no tienen ninguno, se pueden borrar de verdad.
+  ipcMain.handle('productos:eliminados', () =>
+    query(
+      `SELECT p.*, c.nombre as categoria,
+         (SELECT COALESCE(SUM(stock),0) FROM variantes WHERE producto_id = p.id) as stock,
+         (SELECT COUNT(*) FROM venta_items vi JOIN variantes va ON va.id = vi.variante_id
+           WHERE va.producto_id = p.id) +
+         (SELECT COUNT(*) FROM devolucion_items di JOIN variantes va ON va.id = di.variante_id
+           WHERE va.producto_id = p.id) +
+         (SELECT COUNT(*) FROM compra_items ci JOIN variantes va ON va.id = ci.variante_id
+           WHERE va.producto_id = p.id) +
+         (SELECT COUNT(*) FROM comanda_items co JOIN variantes va ON va.id = co.variante_id
+           WHERE va.producto_id = p.id) as usos
+       FROM productos p LEFT JOIN categorias c ON c.id = p.categoria_id
+       WHERE p.activo = 0 ORDER BY p.nombre`
+    )
+  )
+
+  ipcMain.handle('productos:restaurar', (_e, id: number) => {
+    const p = queryOne<{ sku: string | null; nombre: string }>(
+      'SELECT sku, nombre FROM productos WHERE id = ?',
+      [id]
+    )
+    if (!p) throw new Error('Ese producto ya no existe.')
+    // Mientras estuvo borrado, otro producto pudo tomar su SKU.
+    if (p.sku) {
+      const ocupado = queryOne<{ nombre: string }>(
+        'SELECT nombre FROM productos WHERE sku = ? COLLATE NOCASE AND id <> ? AND activo = 1',
+        [p.sku, id]
+      )
+      if (ocupado) {
+        throw new Error(
+          `No se puede restaurar: el SKU ${p.sku} ahora lo usa "${ocupado.nombre}". ` +
+            'Cámbiale el SKU a ese producto primero.'
+        )
+      }
+    }
+    run('UPDATE productos SET activo = 1 WHERE id = ?', [id])
+    programarResumen() // vuelve a contar en el inventario del Panel
+    return true
+  })
+
+  /**
+   * Libera el SKU de un producto eliminado para poder reutilizarlo.
+   * Si el producto nunca se movió, se borra de verdad. Si tiene ventas u otros
+   * movimientos NO se borra (rompería el costo de esas ventas): se le quita el
+   * SKU y se queda como registro histórico.
+   */
+  ipcMain.handle('productos:liberarSku', (_e, id: number) => {
+    const p = queryOne<{ nombre: string; sku: string | null; activo: number }>(
+      'SELECT nombre, sku, activo FROM productos WHERE id = ?',
+      [id]
+    )
+    if (!p) throw new Error('Ese producto ya no existe.')
+    if (p.activo) throw new Error('Primero elimina el producto; solo se libera el SKU de los eliminados.')
+    const usos =
+      queryOne<{ n: number }>(
+        `SELECT
+           (SELECT COUNT(*) FROM venta_items vi JOIN variantes va ON va.id = vi.variante_id
+             WHERE va.producto_id = ?) +
+           (SELECT COUNT(*) FROM devolucion_items di JOIN variantes va ON va.id = di.variante_id
+             WHERE va.producto_id = ?) +
+           (SELECT COUNT(*) FROM compra_items ci JOIN variantes va ON va.id = ci.variante_id
+             WHERE va.producto_id = ?) +
+           (SELECT COUNT(*) FROM comanda_items co JOIN variantes va ON va.id = co.variante_id
+             WHERE va.producto_id = ?) as n`,
+        [id, id, id, id]
+      )?.n ?? 0
+    if (usos > 0) {
+      run('UPDATE productos SET sku = NULL WHERE id = ?', [id])
+      return { modo: 'historico', nombre: p.nombre, sku: p.sku }
+    }
+    // Sin movimientos: se puede borrar de raíz (las variantes caen por cascada).
+    transaction(() => {
+      getDb().run('DELETE FROM movimientos_inventario WHERE variante_id IN (SELECT id FROM variantes WHERE producto_id = ?)', [id])
+      getDb().run('DELETE FROM productos WHERE id = ?', [id])
+    })
+    programarResumen()
+    return { modo: 'borrado', nombre: p.nombre, sku: p.sku }
+  })
+
   ipcMain.handle('productos:save', (_e, data: any) => {
     let productoId = data.id as number | undefined
+    // El SKU identifica al producto y no se puede repetir. Se valida ACÁ (y no
+    // dejando que reviente el UNIQUE de SQLite) para poder decir de quién es el
+    // repetido y proponer el siguiente de la serie.
+    const sku = String(data.sku ?? '').trim()
+    if (!sku) {
+      throw new Error('Se requiere el SKU / Referencia. Es el código con el que identificas el producto.')
+    }
+    const dup = queryOne<{ id: number; nombre: string; activo: number }>(
+      'SELECT id, nombre, activo FROM productos WHERE sku = ? COLLATE NOCASE',
+      [sku]
+    )
+    if (dup && dup.id !== productoId) {
+      const sugerido = siguienteSku(sku)
+      const alternativa = sugerido ? ` El siguiente libre es ${sugerido}.` : ' Usa otra referencia.'
+      throw new Error(
+        dup.activo
+          ? `El SKU ${sku} ya está en uso por "${dup.nombre}".${alternativa}`
+          : `El SKU ${sku} lo tiene "${dup.nombre}", un producto eliminado. Para reutilizarlo, ` +
+            `entra a Inventario → Eliminados y usa "Liberar SKU".${alternativa}`
+      )
+    }
     // Fecha opcional (YYYY-MM-DD) para el stock inicial de variantes nuevas.
     const fechaMov =
       typeof data.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.fecha)
@@ -259,7 +393,7 @@ export function registerHandlers(): void {
           `UPDATE productos SET sku=?, nombre=?, categoria_id=?, marca=?,
              precio_compra=?, precio_venta=?, iva_porcentaje=? WHERE id=?`,
           [
-            data.sku ?? null,
+            sku,
             data.nombre,
             data.categoria_id ?? null,
             data.marca ?? null,
@@ -274,7 +408,7 @@ export function registerHandlers(): void {
           `INSERT INTO productos (sku, nombre, categoria_id, marca, precio_compra, precio_venta, iva_porcentaje)
            VALUES (?,?,?,?,?,?,?)`,
           [
-            data.sku ?? null,
+            sku,
             data.nombre,
             data.categoria_id ?? null,
             data.marca ?? null,
@@ -364,7 +498,7 @@ export function registerHandlers(): void {
 
   ipcMain.handle('variantes:buscarPorCodigo', (_e, codigo: string) =>
     queryOne(
-      `SELECT v.*, p.nombre as producto_nombre, p.precio_venta, p.iva_porcentaje
+      `SELECT v.*, p.nombre as producto_nombre, p.precio_venta, p.precio_compra, p.iva_porcentaje
        FROM variantes v JOIN productos p ON p.id = v.producto_id
        WHERE v.codigo_barras = ? AND p.activo = 1`,
       [codigo]
@@ -1191,6 +1325,49 @@ export function registerHandlers(): void {
       utilidad.utilidad = Math.round(baseNeta - costoNeto)
       utilidad.margen = baseNeta > 0 ? Math.round((utilidad.utilidad / baseNeta) * 100) : 0
     }
+    // Ventas por vendedor (quien atendió). Las devoluciones se restan de la
+    // venta original, así que se le descuentan a quien hizo esa venta.
+    const porVendedor = query(
+      `SELECT vendedor, SUM(ventas) as ventas, SUM(total) as total, SUM(base) as base, SUM(costo) as costo
+       FROM (
+         SELECT COALESCE(u.nombre,'(sin vendedor)') as vendedor,
+                ${cuentaComoVenta} as ventas, ventas.total as total,
+                0 as base, 0 as costo
+         FROM ventas LEFT JOIN usuarios u ON u.id = COALESCE(ventas.vendedor_id, ventas.usuario_id)
+         WHERE ${fV} AND ventas.estado='completada'
+         UNION ALL
+         SELECT COALESCE(u.nombre,'(sin vendedor)'), 0, 0,
+                (vi.precio_unitario * 1.0 / (1 + vi.iva_porcentaje/100.0)) * vi.cantidad,
+                COALESCE(pr.precio_compra,0) * vi.cantidad
+         FROM venta_items vi
+         JOIN ventas v ON v.id = vi.venta_id
+         LEFT JOIN usuarios u ON u.id = COALESCE(v.vendedor_id, v.usuario_id)
+         LEFT JOIN variantes va ON va.id = vi.variante_id
+         LEFT JOIN productos pr ON pr.id = va.producto_id
+         WHERE ${fVv} AND v.estado='completada'
+         UNION ALL
+         SELECT COALESCE(u.nombre,'(sin vendedor)'), 0, -d.total,
+                -(di.precio_unitario * 1.0 / (1 + COALESCE(pr.iva_porcentaje,0)/100.0)) * di.cantidad,
+                -COALESCE(pr.precio_compra,0) * di.cantidad
+         FROM devolucion_items di
+         JOIN devoluciones d ON d.id = di.devolucion_id
+         LEFT JOIN ventas v ON v.id = d.venta_id
+         LEFT JOIN usuarios u ON u.id = COALESCE(v.vendedor_id, v.usuario_id)
+         LEFT JOIN variantes va ON va.id = di.variante_id
+         LEFT JOIN productos pr ON pr.id = va.producto_id
+         WHERE ${fDd}
+       ) GROUP BY vendedor
+       HAVING SUM(ventas) > 0 OR SUM(total) <> 0
+       ORDER BY total DESC`,
+      [...p, ...p, ...p]
+    ) as any[]
+    for (const v of porVendedor) {
+      v.total = Math.round(v.total)
+      v.utilidad = Math.round((v.base ?? 0) - (v.costo ?? 0))
+      delete v.base
+      delete v.costo
+    }
+
     const devoluciones =
       queryOne<{ total: number; n: number }>(
         `SELECT COALESCE(SUM(total),0) as total, COUNT(*) as n FROM devoluciones WHERE ${fV}`,
@@ -1216,7 +1393,7 @@ export function registerHandlers(): void {
     // Ganancia neta = utilidad de mercancía − gastos operativos
     const gananciaNeta = Math.round(((utilidad as any)?.utilidad ?? 0) - gastos.total)
 
-    return { totales, porDia, topProductos, porMetodo, utilidad, devoluciones, neto, fiado, cobrado, gastos, gananciaNeta }
+    return { totales, porDia, topProductos, porMetodo, porVendedor, utilidad, devoluciones, neto, fiado, cobrado, gastos, gananciaNeta }
   })
 
   ipcMain.handle('reportes:stockBajo', () =>
@@ -1302,13 +1479,15 @@ function registrarVenta(venta: any): any {
     const propinaFactura = propinaModo === 'factura' ? propinaMonto : 0
 
     getDb().run(
-      `INSERT INTO ventas (numero, cliente_id, usuario_id, sesion_id, subtotal, descuento, iva, total,
+      `INSERT INTO ventas (numero, cliente_id, usuario_id, vendedor_id, sesion_id, subtotal, descuento, iva, total,
          metodo_pago, pago_recibido, cambio, propina, estado)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
       [
         numero,
         venta.cliente_id ?? null,
         venta.usuario_id ?? null,
+        // Quien atendió; si no se eligió, se le atribuye a quien opera la caja.
+        venta.vendedor_id ?? venta.usuario_id ?? null,
         sesion.id,
         venta.subtotal,
         venta.descuento ?? 0,
@@ -1407,14 +1586,15 @@ function registrarVentaAnterior(venta: any): any {
     numero = 'V' + String((ultimo?.n ?? 0) + 1).padStart(6, '0')
 
     getDb().run(
-      `INSERT INTO ventas (numero, fecha, cliente_id, usuario_id, sesion_id, subtotal, descuento, iva, total,
+      `INSERT INTO ventas (numero, fecha, cliente_id, usuario_id, vendedor_id, sesion_id, subtotal, descuento, iva, total,
          metodo_pago, pago_recibido, cambio, propina, estado)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'completada')`,
       [
         numero,
         fecha,
         venta.cliente_id ?? null,
         venta.usuario_id ?? null,
+        venta.vendedor_id ?? venta.usuario_id ?? null,
         null,
         venta.subtotal ?? venta.total,
         venta.descuento ?? 0,
@@ -1487,6 +1667,28 @@ function obtenerConfig(): Record<string, string> {
   return cfg
 }
 
+/**
+ * Propone el siguiente SKU libre de una serie: CAM001 -> CAM002.
+ * Toma el número más alto ya usado con ese mismo prefijo (contando los
+ * productos borrados, que siguen ocupando el SKU) y le suma uno, respetando
+ * la cantidad de ceros. Devuelve null si el SKU no termina en número.
+ */
+function siguienteSku(sku: string): string | null {
+  const m = /^(.*?)(\d+)$/.exec(sku)
+  if (!m) return null
+  const prefijo = m[1]
+  const ancho = m[2].length
+  const usados = query<{ sku: string }>('SELECT sku FROM productos WHERE sku IS NOT NULL')
+  let mayor = 0
+  for (const u of usados) {
+    const s = String(u.sku)
+    if (s.slice(0, prefijo.length).toLowerCase() !== prefijo.toLowerCase()) continue
+    const resto = s.slice(prefijo.length)
+    if (/^\d+$/.test(resto)) mayor = Math.max(mayor, Number(resto))
+  }
+  return prefijo + String(mayor + 1).padStart(ancho, '0')
+}
+
 /** Devuelve la sesion de caja abierta, o null si no hay ninguna. */
 function sesionAbierta(): any {
   return queryOne("SELECT * FROM caja_sesiones WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1")
@@ -1553,6 +1755,28 @@ function resumenSesion(sesion: any): any {
     [sesion.id]
   )
 
+  // Ventas del turno por vendedor (quien atendió), netas de devoluciones.
+  const porVendedor = query<{ vendedor: string; ventas: number; total: number }>(
+    `SELECT vendedor, SUM(ventas) as ventas, SUM(total) as total FROM (
+       SELECT COALESCE(u.nombre,'(sin vendedor)') as vendedor,
+              CASE WHEN ventas.total > 0 AND
+                COALESCE((SELECT SUM(dd.total) FROM devoluciones dd WHERE dd.venta_id = ventas.id),0) >= ventas.total
+              THEN 0 ELSE 1 END as ventas,
+              ventas.total as total
+       FROM ventas LEFT JOIN usuarios u ON u.id = COALESCE(ventas.vendedor_id, ventas.usuario_id)
+       WHERE ventas.sesion_id = ? AND ventas.estado = 'completada'
+       UNION ALL
+       SELECT COALESCE(u.nombre,'(sin vendedor)'), 0, -d.total
+       FROM devoluciones d
+       LEFT JOIN ventas v ON v.id = d.venta_id
+       LEFT JOIN usuarios u ON u.id = COALESCE(v.vendedor_id, v.usuario_id)
+       WHERE d.sesion_id = ?
+     ) GROUP BY vendedor
+     HAVING SUM(ventas) > 0 OR SUM(total) <> 0
+     ORDER BY total DESC`,
+    [sesion.id, sesion.id]
+  )
+
   const efectivoEsperado =
     (sesion.monto_inicial ?? 0) + ventasEfectivo + abonosEfectivo + propinasEnCaja - devEfectivo - gastosEfectivo
 
@@ -1572,6 +1796,7 @@ function resumenSesion(sesion: any): any {
     propinas_en_caja: propinasEnCaja,
     propinas_total: propinasTotal,
     propinas_por_mesero: propinasPorMesero,
+    ventas_por_vendedor: porVendedor,
     monto_inicial: sesion.monto_inicial ?? 0,
     efectivo_esperado: efectivoEsperado
   }

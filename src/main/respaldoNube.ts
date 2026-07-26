@@ -239,6 +239,62 @@ function construirSnapshot(): Record<string, unknown> {
        GROUP BY d.metodo
      ) GROUP BY metodo HAVING SUM(total) > 0 ORDER BY total DESC`
   )
+  /**
+   * Ventas por vendedor (quien atendió), netas de devoluciones. La devolución se
+   * le descuenta a quien hizo la venta original.
+   * Recibe los filtros ya escritos con el alias que usa cada tabla.
+   */
+  const sqlVendedores = (fVentas: string, fV: string, fDev: string): string => `
+    SELECT vendedor, SUM(ventas) as ventas, SUM(total) as total, SUM(base) as base, SUM(costo) as costo
+    FROM (
+      SELECT COALESCE(u.nombre,'(sin vendedor)') as vendedor,
+             ${cuentaVenta('ventas')} as ventas, ventas.total as total, 0 as base, 0 as costo
+      FROM ventas LEFT JOIN usuarios u ON u.id = COALESCE(ventas.vendedor_id, ventas.usuario_id)
+      WHERE ventas.estado = 'completada' AND ${fVentas}
+      UNION ALL
+      SELECT COALESCE(u.nombre,'(sin vendedor)'), 0, 0,
+             vi.cantidad * vi.precio_unitario * 100.0 / (100 + vi.iva_porcentaje),
+             vi.cantidad * COALESCE(pr.precio_compra,0)
+      FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
+      LEFT JOIN usuarios u ON u.id = COALESCE(v.vendedor_id, v.usuario_id)
+      LEFT JOIN variantes va ON va.id = vi.variante_id
+      LEFT JOIN productos pr ON pr.id = va.producto_id
+      WHERE v.estado = 'completada' AND ${fV}
+      UNION ALL
+      SELECT COALESCE(u.nombre,'(sin vendedor)'), 0, -d.total,
+             -di.cantidad * di.precio_unitario,
+             -di.cantidad * COALESCE(pr.precio_compra,0)
+      FROM devolucion_items di JOIN devoluciones d ON d.id = di.devolucion_id
+      LEFT JOIN ventas v ON v.id = d.venta_id
+      LEFT JOIN usuarios u ON u.id = COALESCE(v.vendedor_id, v.usuario_id)
+      LEFT JOIN variantes va ON va.id = di.variante_id
+      LEFT JOIN productos pr ON pr.id = va.producto_id
+      WHERE ${fDev}
+    ) GROUP BY vendedor
+    HAVING SUM(ventas) > 0 OR SUM(total) <> 0
+    ORDER BY total DESC`
+
+  const limpiarVend = (filas: any[]): any[] =>
+    filas.map((f) => ({
+      nombre: f.vendedor,
+      ventas: f.ventas,
+      total: r(f.total),
+      utilidad: r((f.base ?? 0) - (f.costo ?? 0))
+    }))
+
+  const vendedoresHoy = limpiarVend(
+    query<any>(sqlVendedores(`ventas.sesion_id = ${sid}`, `v.sesion_id = ${sid}`, `d.sesion_id = ${sid}`))
+  )
+  const vendedoresMes = limpiarVend(
+    query<any>(
+      sqlVendedores(
+        `strftime('%Y-%m', ventas.fecha) = ${mesActual}`,
+        `strftime('%Y-%m', v.fecha) = ${mesActual}`,
+        `strftime('%Y-%m', d.fecha) = ${mesActual}`
+      )
+    )
+  )
+
   // Productos más vendidos del mes (para Reportes), descontando devoluciones
   const topMes = query<{ nombre: string; cantidad: number; total: number }>(
     `SELECT nombre, SUM(cantidad) as cantidad, SUM(total) as total FROM (
@@ -344,8 +400,10 @@ function construirSnapshot(): Record<string, unknown> {
       // el neto en negativo, se muestra 0.
       neto: Math.max(0, bruto - dev),
       gastos,
-      utilidad: Math.max(0, utilidad),
-      ganancia_neta: Math.max(0, utilidad - gastos)
+      // La utilidad SÍ puede ir en negativo: si el turno cerró en pérdida el
+      // dueño tiene que verlo, no un $0 que lo tape.
+      utilidad,
+      ganancia_neta: utilidad - gastos
     },
     mes: {
       ventas_num: mes?.num ?? 0,
@@ -363,6 +421,8 @@ function construirSnapshot(): Record<string, unknown> {
       : { abierta: false },
     top,
     top_mes: topMes,
+    vendedores_hoy: vendedoresHoy,
+    vendedores_mes: vendedoresMes,
     metodos,
     stock_bajo: stockBajo,
     inventario: {

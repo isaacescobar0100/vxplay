@@ -17,11 +17,17 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
   }, [])
 
   async function guardar(): Promise<void> {
-    if (!editando.nombre?.trim() || !editando.usuario?.trim()) {
-      avisar('Nombre y usuario de acceso son obligatorios')
+    // Un vendedor de piso no necesita entrar a la app: basta el nombre.
+    const soloVendedor = editando.rol === 'vendedor' && !editando.usuario?.trim()
+    if (!editando.nombre?.trim()) {
+      avisar('El nombre es obligatorio')
       return
     }
-    if (!editando.id && !editando.password) {
+    if (!soloVendedor && !editando.usuario?.trim()) {
+      avisar('El usuario de acceso es obligatorio.\nSi es un vendedor que no usa el computador, déjalo vacío y elige el rol "Vendedor".')
+      return
+    }
+    if (!editando.id && !soloVendedor && !editando.password) {
       avisar('Define una contraseña para el nuevo usuario')
       return
     }
@@ -57,13 +63,19 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
     }
   }
 
+  // Los vendedores sin acceso llevan un usuario interno "#v<id>" que no se muestra
+  // nunca: para la pantalla es como si no tuvieran nombre de acceso.
+  const sinAccesoInterno = String(editando?.usuario ?? '').startsWith('#')
+  const esVendedorSinAcceso = editando?.rol === 'vendedor' && (!editando?.usuario || sinAccesoInterno)
+
   return (
     <div>
       <div className="page-title">Usuarios</div>
       <div className="toolbar">
         <p className="muted" style={{ flex: 1 }}>
-          Administra los usuarios que pueden ingresar. Los <b>cajeros</b> solo ven Punto de Venta,
-          Caja, Ventas y Clientes; los <b>administradores</b> ven todo.
+          Los <b>cajeros</b> solo ven Punto de Venta, Caja, Ventas y Clientes; los{' '}
+          <b>administradores</b> ven todo. Los <b>vendedores</b> no entran a la app: se registran solo
+          con el nombre para poder saber quién atendió cada venta.
         </p>
         <button className="btn-primary btn-icon" onClick={() => setEditando({ ...vacio })}>
           <Icon name="plus" size={16} /> Nuevo usuario
@@ -88,7 +100,9 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
                   <b>{u.nombre}</b>
                   {u.id === usuarioActual.id && <span className="muted"> (tú)</span>}
                 </td>
-                <td className="muted">{u.usuario}</td>
+                <td className="muted">
+                  {String(u.usuario ?? '').startsWith('#') ? '— (no entra a la app)' : u.usuario}
+                </td>
                 <td>
                   <span className={'badge ' + (u.rol === 'admin' ? 'badge-amber' : 'badge-green')}>
                     {u.rol}
@@ -132,10 +146,11 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
             </div>
             <div className="grid-2">
               <div className="field">
-                <label>Usuario de acceso *</label>
+                <label>{esVendedorSinAcceso ? 'Usuario de acceso (opcional)' : 'Usuario de acceso *'}</label>
                 <input
-                  value={editando.usuario ?? ''}
+                  value={sinAccesoInterno ? '' : (editando.usuario ?? '')}
                   onChange={(e) => setEditando({ ...editando, usuario: e.target.value })}
+                  placeholder={esVendedorSinAcceso ? 'Déjalo vacío: no entra a la app' : ''}
                 />
               </div>
               <div className="field">
@@ -145,21 +160,30 @@ export default function Usuarios({ usuarioActual }: { usuarioActual: Usuario }):
                   onChange={(e) => setEditando({ ...editando, rol: e.target.value })}
                 >
                   <option value="cajero">Cajero</option>
+                  <option value="vendedor">Vendedor (solo para atribuirle ventas)</option>
                   <option value="admin">Administrador</option>
                 </select>
               </div>
             </div>
-            <div className="field">
-              <label>
-                {editando.id ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña *'}
-              </label>
-              <input
-                type="password"
-                value={editando.password ?? ''}
-                onChange={(e) => setEditando({ ...editando, password: e.target.value })}
-                placeholder={editando.id ? '••••••' : 'Define una contraseña'}
-              />
-            </div>
+            {esVendedorSinAcceso ? (
+              <p className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+                Esta persona <b>no podrá entrar a la app</b> ni necesita contraseña. Aparecerá en el
+                desplegable <b>Vendedor</b> del Punto de Venta para saber quién atendió cada venta.
+                Si además va a manejar la caja, escríbele un usuario de acceso y ponle contraseña.
+              </p>
+            ) : (
+              <div className="field">
+                <label>
+                  {editando.id ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña *'}
+                </label>
+                <input
+                  type="password"
+                  value={editando.password ?? ''}
+                  onChange={(e) => setEditando({ ...editando, password: e.target.value })}
+                  placeholder={editando.id ? '••••••' : 'Define una contraseña'}
+                />
+              </div>
+            )}
             <div className="modal-foot">
               <button onClick={() => setEditando(null)}>Cancelar</button>
               <button className="btn-primary" onClick={guardar}>

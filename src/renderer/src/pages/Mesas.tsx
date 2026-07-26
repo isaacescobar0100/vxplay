@@ -420,6 +420,9 @@ function Comanda({
       variante_id: it.variante_id,
       producto_nombre: it.producto_nombre,
       precio_unitario: it.precio_unitario,
+      // En mesas el precio no se negocia por línea, así que no hay aviso de
+      // venta bajo costo: se deja en 0 (= sin costo con qué comparar).
+      precio_compra: 0,
       iva_porcentaje: it.iva_porcentaje || 0,
       cantidad: it.cantidad,
       stock: 99999
