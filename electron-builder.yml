@@ -31,4 +31,7 @@ nsis:
   createDesktopShortcut: always
   createStartMenuShortcut: true
   shortcutName: VxPlay
+  # Script propio: recrea el icono del escritorio tambien en las actualizaciones,
+  # que es el caso que electron-builder deja por fuera. Ver build/installer.nsh.
+  include: build/installer.nsh
   # Actualizaciones silenciosas: se aplican solas al reiniciar, sin asistente.
