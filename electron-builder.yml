@@ -25,7 +25,10 @@ win:
 nsis:
   oneClick: true
   perMachine: false
-  createDesktopShortcut: true
+  # "always" y no true: con true el acceso directo solo se crea en una
+  # instalacion NUEVA. Como la actualizacion desinstala y vuelve a instalar,
+  # con true el cliente perdia el icono del escritorio en cada update.
+  createDesktopShortcut: always
   createStartMenuShortcut: true
   shortcutName: VxPlay
   # Actualizaciones silenciosas: se aplican solas al reiniciar, sin asistente.
