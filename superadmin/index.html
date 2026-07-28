@@ -106,11 +106,53 @@
 
       // ==== DASHBOARD ====
       let TIENDAS = []
+      let VERSIONES = {}   // licencia -> { version, actualizado }
+      // Ultima version publicada. Se lee del release de GitHub para no tener que
+      // acordarse de cambiarla a mano en cada version. Si falla, queda null y la
+      // columna muestra la version sin decir si esta al dia.
+      let ULTIMA_VERSION = null
+      async function cargarUltimaVersion() {
+        try {
+          const r = await fetch('https://api.github.com/repos/isaacescobar0100/vxplay/releases/latest')
+          if (!r.ok) return
+          const j = await r.json()
+          ULTIMA_VERSION = String(j.tag_name || '').replace(/^v/, '') || null
+        } catch (e) { /* sin internet o limite de la API: se ignora */ }
+      }
+
       async function cargar() {
         const { data, error } = await sb.from('tiendas').select('*').order('creado_en', { ascending: false })
         if (error) { alert('Error: ' + error.message); return }
         TIENDAS = data || []
+        // La version la reporta cada POS al subir su foto de datos. Si falla
+        // (o la funcion aun no esta creada en Supabase) el panel sigue igual,
+        // solo sin esa columna llena.
+        try {
+          const { data: vs } = await sb.rpc('versiones_tiendas')
+          VERSIONES = {}
+          for (const v of vs || []) VERSIONES[v.licencia] = v
+        } catch (e) { VERSIONES = {} }
+        await cargarUltimaVersion()
         renderDashboard()
+      }
+
+      // Muestra la version del POS de una tienda. Las que nunca han reportado
+      // (POS viejo, anterior a que se agregara este dato) salen como
+      // desactualizadas, que es justo lo que interesa detectar.
+      function celdaVersion(licencia) {
+        const v = VERSIONES[licencia]
+        if (!v || !v.version) {
+          return `<span class="badge b-amber" title="Este POS aun no reporta su version: esta en una version anterior">desactualizada</span>`
+        }
+        // Sin ULTIMA_VERSION no hay con que comparar: se muestra en gris, sin juzgar.
+        if (!ULTIMA_VERSION) {
+          return `<span class="badge" title="Reportado ${new Date(v.actualizado).toLocaleString('es-CO')}">v${esc(v.version)}</span>`
+        }
+        const alDia = v.version === ULTIMA_VERSION
+        const tit = alDia
+          ? `Al día. Reportado ${new Date(v.actualizado).toLocaleString('es-CO')}`
+          : `Atrasada: la última es la ${ULTIMA_VERSION}. Reportado ${new Date(v.actualizado).toLocaleString('es-CO')}`
+        return `<span class="badge ${alDia ? 'b-green' : 'b-amber'}" title="${tit}">v${esc(v.version)}</span>`
       }
 
       function badgeEstado(e) {
@@ -123,6 +165,7 @@
           <tr>
             <td><b>${esc(t.nombre)}</b><div class="muted" style="font-size:11px">${esc(t.tipo_negocio || 'ropa')}</div></td>
             <td><code>${esc(t.licencia)}</code></td>
+            <td>${celdaVersion(t.licencia)}</td>
             <td>${badgeEstado(t.estado)}</td>
             <td>${t.fecha_vencimiento || '—'}</td>
             <td class="muted" style="font-size:11px">${t.ultimo_acceso ? new Date(t.ultimo_acceso).toLocaleString('es-CO') : 'nunca'}</td>
@@ -148,8 +191,8 @@
             </div>
             <div class="card tabla-wrap" style="padding:0">
               <table>
-                <thead><tr><th>Tienda</th><th>Licencia</th><th>Estado</th><th>Vence</th><th>Último acceso</th><th>Último respaldo</th><th></th></tr></thead>
-                <tbody>${filas || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Sin tiendas. Crea la primera.</td></tr>'}</tbody>
+                <thead><tr><th>Tienda</th><th>Licencia</th><th>Versión</th><th>Estado</th><th>Vence</th><th>Último acceso</th><th>Último respaldo</th><th></th></tr></thead>
+                <tbody>${filas || '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">Sin tiendas. Crea la primera.</td></tr>'}</tbody>
               </table>
             </div>
             <p class="muted" style="margin-top:14px;font-size:12px">${TIENDAS.length} tienda(s). Los cambios se aplican en el POS de cada tienda al validar su licencia (al abrir o cada 2 min).</p>

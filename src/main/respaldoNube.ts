@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { queryOne, query, run, persist, getDbPath } from './db'
 import { SUPABASE_URL, SUPABASE_ANON } from './supabase'
@@ -390,6 +391,9 @@ function construirSnapshot(): Record<string, unknown> {
   return {
     generado: new Date().toISOString(),
     moneda: 'COP',
+    // Version del POS que subio la foto: sirve para ver desde el superadmin
+    // que tiendas quedaron atrasadas sin tener que preguntarle a cada una.
+    version: app.getVersion(),
     dian_on: dianOn,
     hoy: {
       ventas_num: vHoy?.num ?? 0,

@@ -49,4 +49,19 @@ export function initAutoUpdater(): void {
   autoUpdater.checkForUpdates().catch(() => {
     /* ignorar fallos de red */
   })
+
+  // Y cada 6 horas mientras la app esté abierta.
+  //
+  // Por qué: el botón "Salir" del POS solo cierra la SESIÓN del usuario, no el
+  // programa. Muchas tiendas nunca cierran la ventana (dejan el computador
+  // prendido), así que con solo revisar al arrancar podían pasar semanas sin
+  // recibir una actualización, incluso creyendo que ya habían reiniciado.
+  setInterval(
+    () => {
+      autoUpdater.checkForUpdates().catch(() => {
+        /* sin internet: se reintenta en el próximo ciclo */
+      })
+    },
+    6 * 60 * 60 * 1000
+  )
 }
