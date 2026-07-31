@@ -8,3 +8,8 @@ dev-log2.txt
 *.tsbuildinfo
 electron.vite.config.*.mjs
 .DS_Store
+
+# Variables de entorno (nunca subir claves reales)
+.env
+.env.*
+!.env.example
