@@ -417,10 +417,10 @@ function ImportarModal({ onClose, onImportado }: { onClose: () => void; onImport
         <h2>Importar productos desde Excel</h2>
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
           Sube un archivo <b>.xlsx</b> o <b>.csv</b>. Columnas: <code>nombre, categoria, marca, sku, precio_compra,
-          precio_venta, iva, codigo_barras, talla, color, stock, stock_minimo, fecha</code>. Solo <b>nombre</b> es
-          obligatorio. Si repites el mismo nombre con distinta talla/color, se crean como variantes del mismo producto.
-          Deja <b>sku</b> en blanco si no quieres controlarlo (evita choques por SKU repetido). La columna <b>fecha</b>
-          (AAAA-MM-DD) sirve para cargar inventario de días anteriores.
+          precio_venta, iva, codigo_barras, talla, color, stock, stock_minimo, fecha</code>. <b>nombre</b> y <b>sku</b>{' '}
+          son obligatorios. Si repites el mismo nombre con distinta talla/color, se crean como variantes del mismo
+          producto y el <b>sku</b> lo puedes dejar vacío en esas filas. La columna <b>fecha</b> (AAAA-MM-DD) sirve para
+          cargar inventario de días anteriores.
         </p>
 
         {!preview ? (

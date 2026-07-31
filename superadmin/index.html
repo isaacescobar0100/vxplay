@@ -149,10 +149,18 @@
           return `<span class="badge" title="Reportado ${new Date(v.actualizado).toLocaleString('es-CO')}">v${esc(v.version)}</span>`
         }
         const alDia = v.version === ULTIMA_VERSION
+        // Tamaño de la base: sobre 50 MB conviene revisar el rendimiento del POS,
+        // porque hoy reescribe el archivo entero en cada venta.
+        const kb = Number(v.db_kb) || 0
+        const peso = !kb
+          ? ''
+          : `<div class="muted" style="font-size:11px;margin-top:3px${kb > 50000 ? ';color:var(--amber)' : ''}">${
+              kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB'
+            }${kb > 50000 ? ' ⚠️' : ''}</div>`
         const tit = alDia
           ? `Al día. Reportado ${new Date(v.actualizado).toLocaleString('es-CO')}`
           : `Atrasada: la última es la ${ULTIMA_VERSION}. Reportado ${new Date(v.actualizado).toLocaleString('es-CO')}`
-        return `<span class="badge ${alDia ? 'b-green' : 'b-amber'}" title="${tit}">v${esc(v.version)}</span>`
+        return `<span class="badge ${alDia ? 'b-green' : 'b-amber'}" title="${tit}">v${esc(v.version)}</span>${peso}`
       }
 
       function badgeEstado(e) {

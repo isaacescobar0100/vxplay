@@ -8,10 +8,16 @@
 --
 -- Correr una sola vez en el SQL Editor de Supabase.
 
+-- Se borra primero porque PostgreSQL no permite cambiarle las columnas de salida
+-- a una función existente con `create or replace`. Es de solo lectura, así que
+-- borrarla y recrearla no afecta ningún dato.
+drop function if exists versiones_tiendas();
+
 create or replace function versiones_tiendas()
 returns table (
   licencia    text,
   version     text,
+  db_kb       bigint,
   actualizado timestamptz
 )
 language sql
@@ -20,6 +26,7 @@ set search_path = public
 as $$
   select licencia,
          snapshot->>'version' as version,
+         (snapshot->>'db_kb')::bigint as db_kb,
          actualizado
     from portal_tienda;
 $$;

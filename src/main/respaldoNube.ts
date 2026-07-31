@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, statSync } from 'fs'
 import { queryOne, query, run, persist, getDbPath } from './db'
 import { SUPABASE_URL, SUPABASE_ANON } from './supabase'
 import { crearBackupAutomatico } from './backup'
@@ -394,6 +394,16 @@ function construirSnapshot(): Record<string, unknown> {
     // Version del POS que subio la foto: sirve para ver desde el superadmin
     // que tiendas quedaron atrasadas sin tener que preguntarle a cada una.
     version: app.getVersion(),
+    // Tamano de la base local en KB. Sirve para vigilar desde el superadmin si
+    // alguna tienda se esta engordando: pasando los 50 MB conviene cambiar el
+    // motor de guardado, porque hoy se reescribe el archivo entero en cada venta.
+    db_kb: (() => {
+      try {
+        return Math.round(statSync(getDbPath()).size / 1024)
+      } catch {
+        return null
+      }
+    })(),
     dian_on: dianOn,
     hoy: {
       ventas_num: vHoy?.num ?? 0,

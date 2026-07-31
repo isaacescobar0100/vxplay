@@ -23,13 +23,64 @@ import type { SqlValue } from 'sql.js'
  * Registra todos los canales IPC. El frontend (renderer) los invoca a traves
  * del objeto `window.api` expuesto en preload.
  */
+/**
+ * Canales que REGISTRAN movimientos. Sin licencia activa se rechazan: la tienda
+ * queda en "modo consulta" (puede ver y exportar todo lo suyo, pero el sistema
+ * no opera). Lo que no está en esta lista —listados, reportes, respaldos e
+ * impresión— sigue funcionando, para no dejarle los datos secuestrados.
+ */
+const CANALES_ESCRITURA = new Set([
+  'ventas:crear', 'ventas:crearAnterior', 'ventas:eliminarAnterior', 'ventas:facturarDian',
+  'comanda:abrir', 'comanda:agregarItem', 'comanda:cambiarCantidad', 'comanda:cobrar', 'comanda:cobrarParcial',
+  'mesas:crear', 'mesas:eliminar', 'mesas:renombrar', 'mesas:liberar',
+  'devoluciones:crear', 'devoluciones:eliminar',
+  'caja:abrir', 'caja:cerrar',
+  'compras:crear', 'compras:actualizar', 'compras:eliminar', 'proveedores:save',
+  'gastos:crear', 'fiado:abonar',
+  'productos:save', 'productos:delete', 'productos:restaurar', 'productos:liberarSku',
+  'productos:importarGuardar', 'categorias:create', 'inventario:ajustar',
+  'clientes:save', 'clientes:delete',
+  'usuarios:save', 'usuarios:toggle', 'usuarios:eliminar', 'usuarios:cambiarPassword',
+  'config:set', 'tienda:reiniciarDatos', 'carta:publicar', 'portal:guardarClave'
+])
+
+/** Mensaje que ve el cajero al intentar operar sin licencia. */
+const AVISO_CONSULTA =
+  'La licencia está vencida o suspendida. El sistema está en modo consulta: ' +
+  'puedes ver y exportar tu información, pero no registrar movimientos hasta reactivarla.'
+
+// Última licencia conocida. Arranca en true para no bloquear durante el arranque
+// (la interfaz consulta el estado apenas abre, y luego cada 60 s).
+let licenciaActiva = true
+
 export function registerHandlers(): void {
+  // Portero de escritura. Se envuelve ipcMain.handle UNA vez, en vez de repetir
+  // la verificación en los noventa handlers.
+  const handleSinGuardia = ipcMain.handle.bind(ipcMain)
+  ;(ipcMain as unknown as { handle: typeof ipcMain.handle }).handle = ((
+    canal: string,
+    fn: (...args: unknown[]) => unknown
+  ) =>
+    handleSinGuardia(canal, (...args: unknown[]) => {
+      if (!licenciaActiva && CANALES_ESCRITURA.has(canal)) throw new Error(AVISO_CONSULTA)
+      return fn(...args)
+    })) as typeof ipcMain.handle
+
   // Versión de la app (para mostrarla en la interfaz)
   ipcMain.handle('app:version', () => app.getVersion())
 
   // ---------- LICENCIA ----------
-  ipcMain.handle('licencia:estado', () => estadoLicencia())
-  ipcMain.handle('licencia:estadoRapido', () => estadoLicenciaRapido())
+  // Cada consulta refresca el portero de escritura de arriba.
+  ipcMain.handle('licencia:estado', async () => {
+    const r = await estadoLicencia()
+    licenciaActiva = r.activa
+    return r
+  })
+  ipcMain.handle('licencia:estadoRapido', () => {
+    const r = estadoLicenciaRapido()
+    if (r) licenciaActiva = r.activa
+    return r
+  })
   ipcMain.handle('licencia:activar', (_e, codigo: string) => activarLicencia(codigo))
   ipcMain.handle('licencia:cambiar', () => {
     // Recordar la licencia actual para detectar cambio de tienda al reactivar
