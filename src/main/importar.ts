@@ -112,10 +112,16 @@ export async function leerImportacion(): Promise<{
   if (!Object.values(mapa).includes('nombre')) {
     return { ok: false, error: 'No se encontró la columna "nombre". Usa la plantilla como guía.' }
   }
+  if (!Object.values(mapa).includes('sku')) {
+    return { ok: false, error: 'No se encontró la columna "sku". Es obligatoria: identifica cada producto.' }
+  }
 
   const dianOn = dianActiva()
   const errores: string[] = []
   const porNombre: Record<string, ProductoImportado> = {}
+  // SKU -> nombre del producto que lo usa, para cazar repetidos dentro del archivo
+  // antes de guardar (si no, reventaría al insertar el segundo).
+  const skusEnArchivo: Record<string, string> = {}
   let totalVariantes = 0
 
   filas.forEach((fila, i) => {
@@ -129,12 +135,28 @@ export async function leerImportacion(): Promise<{
     // Ignorar las filas de ejemplo de la plantilla aunque el usuario olvide borrarlas.
     if (/^ejemplo\s*\(borra esta fila\)/i.test(nombre)) return
     const clave = nombre.toLowerCase()
+    // El SKU es obligatorio, igual que al crear un producto a mano. Va por
+    // PRODUCTO: en las filas de variantes (mismo nombre) puede repetirse o
+    // dejarse vacío, porque ya lo definió la primera fila de ese producto.
+    const sku = String(r.sku ?? '').trim()
+    if (!sku && !porNombre[clave]) {
+      errores.push(`Fila ${i + 2}: sin SKU. Es obligatorio para identificar el producto, se omitió.`)
+      return
+    }
+    if (sku) {
+      const dueno = skusEnArchivo[sku.toLowerCase()]
+      if (dueno && dueno !== clave) {
+        errores.push(`Fila ${i + 2}: el SKU ${sku} ya lo usa "${dueno}" en este mismo archivo, se omitió.`)
+        return
+      }
+      skusEnArchivo[sku.toLowerCase()] = clave
+    }
     if (!porNombre[clave]) {
       porNombre[clave] = {
         nombre,
         categoria: String(r.categoria ?? '').trim() || null,
         marca: String(r.marca ?? '').trim() || null,
-        sku: String(r.sku ?? '').trim() || null,
+        sku,
         precio_compra: num(r.precio_compra),
         precio_venta: num(r.precio_venta),
         iva_porcentaje: r.iva === '' || r.iva == null ? (dianOn ? 19 : 0) : num(r.iva),

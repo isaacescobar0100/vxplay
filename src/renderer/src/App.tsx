@@ -40,15 +40,18 @@ type Vista =
 
 // `roles` = qué roles la ven; `tipos` = en qué tipos de negocio aparece (si se omite, en todos).
 // `flag` = clave de config que debe estar en '1' para que aparezca (funciones opcionales).
-const NAV: { key: Vista; label: string; icon: IconName; roles?: string[]; tipos?: string[]; flag?: string }[] = [
+// `opera` = registra movimientos, así que se oculta en modo consulta (licencia vencida).
+const NAV: {
+  key: Vista; label: string; icon: IconName; roles?: string[]; tipos?: string[]; flag?: string; opera?: boolean
+}[] = [
   { key: 'inicio', label: 'Inicio', icon: 'home' },
-  { key: 'mesas', label: 'Mesas', icon: 'mesa', tipos: ['bar', 'restaurante'] },
-  { key: 'ventas', label: 'Punto de Venta', icon: 'cart' },
-  { key: 'caja', label: 'Caja', icon: 'cash' },
+  { key: 'mesas', label: 'Mesas', icon: 'mesa', tipos: ['bar', 'restaurante'], opera: true },
+  { key: 'ventas', label: 'Punto de Venta', icon: 'cart', opera: true },
+  { key: 'caja', label: 'Caja', icon: 'cash', opera: true },
   { key: 'historial', label: 'Ventas', icon: 'receipt' },
   { key: 'inventario', label: 'Inventario', icon: 'shirt', roles: ['admin'] },
-  { key: 'compras', label: 'Compras', icon: 'box', roles: ['admin'] },
-  { key: 'ventaanterior', label: 'Registrar venta anterior', icon: 'calendar', roles: ['admin'] },
+  { key: 'compras', label: 'Compras', icon: 'box', roles: ['admin'], opera: true },
+  { key: 'ventaanterior', label: 'Registrar venta anterior', icon: 'calendar', roles: ['admin'], opera: true },
   { key: 'clientes', label: 'Clientes', icon: 'users' },
   { key: 'fiado', label: 'Cuentas por cobrar', icon: 'receipt', flag: 'fiado_habilitado' },
   { key: 'reportes', label: 'Reportes', icon: 'chart', roles: ['admin'] },
@@ -114,9 +117,15 @@ export default function App(): JSX.Element {
   // ----- Portero de licencia (antes de todo) -----
   if (lic === 'checking') return <PantallaCentro texto="Verificando licencia..." />
   if (lic.necesitaActivacion) return <Activacion onActivado={verificarLicencia} />
-  if (!lic.activa) return <Bloqueado motivo={lic.motivo} onReintentar={verificarLicencia} />
 
   if (!usuario) return <Login onLogin={setUsuario} />
+
+  // Licencia vencida o suspendida: NO se cierra la puerta. La tienda entra, ve y
+  // exporta toda su información —que es suya—, pero el sistema deja de operar.
+  // Las secciones que registran movimientos se ocultan aquí, y el proceso
+  // principal además rechaza esas operaciones (ver CANALES_ESCRITURA).
+  const soloConsulta = !lic.activa
+  const vistaActual = soloConsulta && NAV.find((n) => n.key === vista)?.opera ? 'inicio' : vista
 
   return (
     <div className="app">
@@ -162,11 +171,12 @@ export default function App(): JSX.Element {
             (n) =>
               (!n.roles || n.roles.includes(usuario.rol)) &&
               (!n.tipos || n.tipos.includes(tipoNegocio)) &&
-              (!n.flag || (n.flag === 'fiado_habilitado' && fiadoOn))
+              (!n.flag || (n.flag === 'fiado_habilitado' && fiadoOn)) &&
+              (!soloConsulta || !n.opera)
           ).map((n) => (
             <button
               key={n.key}
-              className={'nav-item' + (vista === n.key ? ' active' : '')}
+              className={'nav-item' + (vistaActual === n.key ? ' active' : '')}
               onClick={() => setVista(n.key)}
             >
               <span className="nav-icon">
@@ -204,19 +214,46 @@ export default function App(): JSX.Element {
       </aside>
 
       <main className="main" key={refreshKey}>
-        {vista === 'inicio' && <Inicio usuario={usuario} irA={(v) => setVista(v as Vista)} />}
-        {vista === 'ventas' && <Ventas usuario={usuario} />}
-        {vista === 'mesas' && <Mesas usuario={usuario} />}
-        {vista === 'caja' && <Caja usuario={usuario} />}
-        {vista === 'historial' && <HistorialVentas usuario={usuario} />}
-        {vista === 'inventario' && <Inventario />}
-        {vista === 'compras' && <Compras usuario={usuario} />}
-        {vista === 'ventaanterior' && <VentaAnterior usuario={usuario} />}
-        {vista === 'clientes' && <Clientes />}
-        {vista === 'fiado' && <CuentasPorCobrar usuarioActual={usuario} />}
-        {vista === 'reportes' && <Reportes />}
-        {vista === 'usuarios' && <Usuarios usuarioActual={usuario} />}
-        {vista === 'config' && <Configuracion />}
+        {soloConsulta && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+              background: 'rgba(217, 119, 6, 0.14)',
+              border: '1px solid var(--amber)',
+              borderRadius: 10,
+              padding: '12px 16px',
+              marginBottom: 18
+            }}
+          >
+            <Icon name="alert" size={20} />
+            <div style={{ flex: 1, minWidth: 240, fontSize: 13.5, lineHeight: 1.5 }}>
+              <b>Modo consulta — la licencia no está activa.</b>
+              <div className="muted">
+                {lic.motivo ?? 'Comunícate para reactivarla.'} Puedes ver y exportar toda tu
+                información, pero el sistema no registra ventas ni movimientos hasta reactivar.
+              </div>
+            </div>
+            <button className="btn-primary" onClick={verificarLicencia}>
+              Reintentar
+            </button>
+          </div>
+        )}
+        {vistaActual === 'inicio' && <Inicio usuario={usuario} irA={(v) => setVista(v as Vista)} />}
+        {vistaActual === 'ventas' && <Ventas usuario={usuario} />}
+        {vistaActual === 'mesas' && <Mesas usuario={usuario} />}
+        {vistaActual === 'caja' && <Caja usuario={usuario} />}
+        {vistaActual === 'historial' && <HistorialVentas usuario={usuario} />}
+        {vistaActual === 'inventario' && <Inventario />}
+        {vistaActual === 'compras' && <Compras usuario={usuario} />}
+        {vistaActual === 'ventaanterior' && <VentaAnterior usuario={usuario} />}
+        {vistaActual === 'clientes' && <Clientes />}
+        {vistaActual === 'fiado' && <CuentasPorCobrar usuarioActual={usuario} />}
+        {vistaActual === 'reportes' && <Reportes />}
+        {vistaActual === 'usuarios' && <Usuarios usuarioActual={usuario} />}
+        {vistaActual === 'config' && <Configuracion />}
       </main>
 
       {cambiarPass && <CambiarPassword usuario={usuario} onClose={() => setCambiarPass(false)} />}
@@ -281,40 +318,10 @@ function Activacion({ onActivado }: { onActivado: () => void }): JSX.Element {
   )
 }
 
-function Bloqueado({ motivo, onReintentar }: { motivo: string; onReintentar: () => void }): JSX.Element {
-  const [cargando, setCargando] = useState(false)
-  async function reintentar(): Promise<void> {
-    setCargando(true)
-    await onReintentar()
-    setCargando(false)
-  }
-  async function cambiarLicencia(): Promise<void> {
-    if (await confirmar('¿Activar otra licencia en este equipo? Se borrará la licencia actual y podrás ingresar un código nuevo.')) {
-      await window.api.licenciaCambiar()
-      window.location.reload()
-    }
-  }
-  return (
-    <div className="login-wrap">
-      <div className="login-card" style={{ textAlign: 'center', borderColor: 'var(--red)' }}>
-        <div style={{ fontSize: 44, marginBottom: 8 }}>
-          <Icon name="lock" size={44} />
-        </div>
-        <h1 style={{ fontSize: 20 }}>Sistema bloqueado</h1>
-        <p style={{ color: 'var(--red)', margin: '14px 0', fontSize: 14 }}>{motivo}</p>
-        <p className="muted" style={{ fontSize: 13, marginBottom: 18 }}>
-          Si ya solucionaste el pago, presiona <b>Reintentar</b>. Si esta licencia ya no sirve, activa otra.
-        </p>
-        <button className="btn-primary" style={{ width: '100%' }} onClick={reintentar} disabled={cargando}>
-          {cargando ? 'Verificando...' : 'Reintentar'}
-        </button>
-        <button style={{ width: '100%', marginTop: 10 }} onClick={cambiarLicencia}>
-          Activar otra licencia
-        </button>
-      </div>
-    </div>
-  )
-}
+// La pantalla "Sistema bloqueado" se eliminó a propósito: retenerle los datos al
+// cliente no daba más presión que impedirle vender, y sí generaba conflictos.
+// Ahora una licencia inactiva deja entrar en modo consulta (ver `soloConsulta`).
+// "Cambiar licencia" vive en la barra lateral, solo para administradores.
 
 function CambiarPassword({ usuario, onClose }: { usuario: Usuario; onClose: () => void }): JSX.Element {
   const [actual, setActual] = useState('')
