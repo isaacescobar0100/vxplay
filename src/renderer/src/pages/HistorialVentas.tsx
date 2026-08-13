@@ -343,9 +343,14 @@ function DevolucionModal({
     setCantidades((c) => ({ ...c, [id]: Math.max(0, Math.min(max, v)) }))
   }
 
-  const totalDevolver = items.reduce(
-    (s, it) => s + (cantidades[it.id] ?? 0) * it.precio_unitario,
-    0
+  // El descuento se guarda en la VENTA, no en cada producto: los items conservan
+  // su precio de lista. Se les aplica la misma proporción para no reintegrar más
+  // de lo que la venta realmente cobró.
+  const brutoVenta = items.reduce((s, it) => s + (it.subtotal ?? it.precio_unitario * it.cantidad), 0)
+  const factorDesc = brutoVenta > 0 ? (venta.total ?? 0) / brutoVenta : 0
+  const conDescuento = factorDesc < 0.999
+  const totalDevolver = Math.round(
+    items.reduce((s, it) => s + (cantidades[it.id] ?? 0) * it.precio_unitario, 0) * factorDesc
   )
   const hayAlgo = totalDevolver > 0
 
@@ -445,6 +450,12 @@ function DevolucionModal({
           <span className="muted">Total a devolver</span>
           <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--red)' }}>{cop(totalDevolver)}</span>
         </div>
+        {conDescuento && hayAlgo && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            Esta venta se cobró por debajo del precio de lista, así que se devuelve lo que el cliente
+            realmente pagó por esos productos — no el precio de la etiqueta.
+          </p>
+        )}
 
         {devueltasPrevias.length > 0 && (
           <div style={{ marginTop: 12 }}>
