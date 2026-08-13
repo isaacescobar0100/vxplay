@@ -352,7 +352,13 @@ function DevolucionModal({
   const totalDevolver = Math.round(
     items.reduce((s, it) => s + (cantidades[it.id] ?? 0) * it.precio_unitario, 0) * factorDesc
   )
-  const hayAlgo = totalDevolver > 0
+  // Lo que habilita la devolución son las UNIDADES, no la plata: si la venta se
+  // cobró en $0 no hay nada que reintegrar, pero el producto igual tiene que
+  // volver al inventario. Antes esto miraba el monto y dejaba esas ventas
+  // atrapadas, sin forma de devolverlas.
+  const unidadesDevolver = items.reduce((s, it) => s + (cantidades[it.id] ?? 0), 0)
+  const hayAlgo = unidadesDevolver > 0
+  const sinPlata = hayAlgo && totalDevolver === 0
 
   async function procesarDevolucion(): Promise<void> {
     const aDevolver = items
@@ -450,11 +456,19 @@ function DevolucionModal({
           <span className="muted">Total a devolver</span>
           <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--red)' }}>{cop(totalDevolver)}</span>
         </div>
-        {conDescuento && hayAlgo && (
+        {sinPlata ? (
           <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-            Esta venta se cobró por debajo del precio de lista, así que se devuelve lo que el cliente
-            realmente pagó por esos productos — no el precio de la etiqueta.
+            Esta venta no cobró nada, así que no hay dinero que reintegrar. La devolución sirve igual:
+            regresa el producto al inventario.
           </p>
+        ) : (
+          conDescuento &&
+          hayAlgo && (
+            <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+              Esta venta se cobró por debajo del precio de lista, así que se devuelve lo que el cliente
+              realmente pagó por esos productos — no el precio de la etiqueta.
+            </p>
+          )
         )}
 
         {devueltasPrevias.length > 0 && (
