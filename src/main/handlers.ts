@@ -1017,11 +1017,28 @@ export function registerHandlers(): void {
     // La devolución se fecha con la FECHA DE LA VENTA (no la de hoy), para que
     // reste en el MISMO período que la venta. Clave con ventas anteriores
     // (backdated): si no, la devolución caía en otro día y no descontaba.
-    const ventaFecha =
-      (queryOne<{ fecha: string }>('SELECT fecha FROM ventas WHERE id = ?', [data.venta_id])?.fecha) ?? null
+    const venta = queryOne<{ fecha: string; total: number }>(
+      'SELECT fecha, total FROM ventas WHERE id = ?',
+      [data.venta_id]
+    )
+    const ventaFecha = venta?.fecha ?? null
+
+    // El descuento se guarda a nivel de VENTA, no en cada producto: los items
+    // conservan su precio de lista. Si se devuelve tal cual, se reintegra mas
+    // plata de la que la venta cobro y las metricas quedan en negativo (pasó con
+    // una venta de $0 cuyo producto valia $100.000: la devolucion resto $100.000).
+    // Por eso se le aplica a cada linea la misma proporcion que tuvo la venta.
+    const brutoVenta =
+      queryOne<{ t: number }>('SELECT COALESCE(SUM(subtotal),0) as t FROM venta_items WHERE venta_id = ?', [
+        data.venta_id
+      ])?.t ?? 0
+    const factor = brutoVenta > 0 ? (venta?.total ?? 0) / brutoVenta : 0
+    /** Lo que realmente se le cobró al cliente por esa línea. */
+    const cobrado = (it: any): number => Math.round(it.precio_unitario * it.cantidad * factor)
+
     let devolucionId = 0
     transaction(() => {
-      const total = (data.items as any[]).reduce((s, it) => s + it.precio_unitario * it.cantidad, 0)
+      const total = (data.items as any[]).reduce((s, it) => s + cobrado(it), 0)
       getDb().run(
         `INSERT INTO devoluciones (venta_id, sesion_id, usuario_id, fecha, motivo, metodo, total)
          VALUES (?,?,?, COALESCE(?, datetime('now','localtime')), ?,?,?)`,
@@ -1050,8 +1067,10 @@ export function registerHandlers(): void {
             it.talla ?? null,
             it.color ?? null,
             it.cantidad,
-            it.precio_unitario,
-            it.precio_unitario * it.cantidad
+            // Se guarda el precio EFECTIVO (ya con el descuento aplicado), porque
+            // los reportes calculan el neto y la utilidad con este valor.
+            it.cantidad > 0 ? Math.round(cobrado(it) / it.cantidad) : 0,
+            cobrado(it)
           ]
         )
         // reingresar stock

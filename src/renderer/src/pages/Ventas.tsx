@@ -576,6 +576,10 @@ export function Checkout({
   // Líneas que se están vendiendo por menos de lo que costó la prenda.
   // Se ignora el costo en 0 (producto sin costo cargado): ahí no hay con qué comparar.
   const bajoCosto = cart.filter((i) => i.precio_compra > 0 && i.precio_unitario < i.precio_compra)
+  // Y el TOTAL contra el costo de la mercancía. Hace falta aparte, porque el
+  // descuento se aplica al final: puede dejar la venta en pérdida (incluso
+  // regalarla) sin que ninguna línea se vea barata.
+  const costoMercancia = cart.reduce((s, i) => s + i.precio_compra * i.cantidad, 0)
 
   const cambio = Math.max(0, recibido - pagarTotal)
   const pagadoMixto = pagoEfectivo + pagoTarjeta + pagoTransfer
@@ -595,16 +599,21 @@ export function Checkout({
       avisar('Los pagos no cubren el total. Falta ' + cop(faltaMixto))
       return
     }
-    // Aviso de venta a pérdida: el precio es negociable, pero que quede claro
-    // cuándo se está vendiendo por debajo de lo que costó la prenda.
-    if (bajoCosto.length > 0) {
-      const detalle = bajoCosto
-        .map((i) => `• ${i.producto_nombre}: se vende a ${cop(i.precio_unitario)} y costó ${cop(i.precio_compra)}`)
-        .join('\n')
-      const perdida = bajoCosto.reduce((s, i) => s + (i.precio_compra - i.precio_unitario) * i.cantidad, 0)
+    // Aviso de venta a pérdida: el precio y el descuento son negociables, pero
+    // que quede claro cuándo la tienda está poniendo plata.
+    const perdida = costoMercancia > 0 ? costoMercancia - totalFinal : 0
+    if (perdida > 0 || bajoCosto.length > 0) {
+      const detalle = bajoCosto.map(
+        (i) => `• ${i.producto_nombre}: se vende a ${cop(i.precio_unitario)} y costó ${cop(i.precio_compra)}`
+      )
+      if (descuento > 0) detalle.push(`• Descuento aplicado: ${cop(descuento)}`)
+      const resumen =
+        perdida > 0
+          ? `Cobras ${cop(totalFinal)} y la mercancía te costó ${cop(costoMercancia)}: pierdes ${cop(perdida)}.`
+          : 'Hay productos por debajo de su costo, aunque la venta en total todavía deja ganancia.'
       if (
         !(await preguntar(
-          `Estás vendiendo por debajo del costo:\n\n${detalle}\n\nPierdes ${cop(perdida)} en esta venta. ¿Cobrar de todas formas?`,
+          `${detalle.join('\n')}\n\n${resumen}\n\n¿Cobrar de todas formas?`,
           'Venta a pérdida'
         ))
       ) {
