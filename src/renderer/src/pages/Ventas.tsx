@@ -130,6 +130,21 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
     )
   }
 
+  // Venta olvidada: si el carrito queda con productos y nadie lo toca, al rato
+  // llega otro cliente, se le agregan cosas encima y se cobra todo junto. Pasó en
+  // una tienda. No se vacía solo (podría estar atendiendo despacio), pero se avisa.
+  const [ultimoCambio, setUltimoCambio] = useState(Date.now())
+  const [ahora, setAhora] = useState(Date.now())
+  useEffect(() => {
+    setUltimoCambio(Date.now())
+  }, [cart])
+  useEffect(() => {
+    const t = setInterval(() => setAhora(Date.now()), 20000)
+    return () => clearInterval(t)
+  }, [])
+  const minutosQuieto = Math.floor((ahora - ultimoCambio) / 60000)
+  const ventaOlvidada = cart.length > 0 && minutosQuieto >= 3
+
   // Precio editable por línea (a veces negocian el precio, no es fijo).
   function cambiarPrecio(key: string, precio: number): void {
     setCart((prev) => prev.map((i) => (i.key === key ? { ...i, precio_unitario: Math.max(0, precio) } : i)))
@@ -293,6 +308,31 @@ export default function Ventas({ usuario }: { usuario: Usuario }): JSX.Element {
             {mostrarPrecios ? 'Ocultar total' : 'Mostrar total'}
           </button>
         </div>
+        {ventaOlvidada && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              margin: '0 0 8px',
+              padding: '10px 12px',
+              background: 'rgba(217, 119, 6, 0.14)',
+              border: '1px solid var(--amber)',
+              borderRadius: 8,
+              fontSize: 12.5,
+              lineHeight: 1.45
+            }}
+          >
+            <Icon name="alert" size={18} />
+            <span style={{ flex: 1 }}>
+              Esta venta lleva <b>{minutosQuieto} minuto(s)</b> sin cobrarse. ¿Es del cliente que estás
+              atendiendo?
+            </span>
+            <button className="btn-sm" onClick={() => setCart([])} style={{ whiteSpace: 'nowrap' }}>
+              Vaciar
+            </button>
+          </div>
+        )}
         <div className="cart-items">
           {cart.length === 0 ? (
             <p className="muted" style={{ padding: 16 }}>

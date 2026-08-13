@@ -337,6 +337,32 @@ function migrateSchema(): void {
   // Corrección única: alinear la fecha de las devoluciones VIEJAS a la fecha de
   // su venta, para que resten en el mismo período (antes se guardaban con la
   // fecha del día en que se hacían → no descontaban con ventas anteriores).
+  // Regularización única del kardex. Hasta ahora, cambiar el stock desde el
+  // formulario del producto NO dejaba movimiento, así que en las tiendas que
+  // reponen mercancía por ahí el historial quedó incompleto y su suma no coincide
+  // con el stock. Se agrega UN movimiento por variante que cierra esa diferencia,
+  // para que de aquí en adelante el kardex cuadre y un descuadre signifique algo.
+  //
+  // NO cambia el stock: solo escribe en el historial. Y usa tipo 'ajuste' (no
+  // 'entrada') para no alterar la "fecha de inventario", que se calcula con la
+  // primera entrada de cada producto.
+  const migKardex = queryOne<{ valor: string }>("SELECT valor FROM config WHERE clave = 'mig_kardex_v1'")
+  if (!migKardex) {
+    db.run(
+      `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo)
+       SELECT v.id, 'ajuste',
+              v.stock - COALESCE((SELECT SUM(m.cantidad) FROM movimientos_inventario m
+                                   WHERE m.variante_id = v.id), 0),
+              'Regularización: movimientos anteriores no registrados'
+         FROM variantes v
+        WHERE v.stock <> COALESCE((SELECT SUM(m.cantidad) FROM movimientos_inventario m
+                                    WHERE m.variante_id = v.id), 0)`
+    )
+    db.run(
+      "INSERT INTO config (clave, valor) VALUES ('mig_kardex_v1','1') ON CONFLICT(clave) DO UPDATE SET valor='1'"
+    )
+  }
+
   const migDev = queryOne<{ valor: string }>("SELECT valor FROM config WHERE clave = 'mig_devol_fecha_v1'")
   if (!migDev) {
     db.run(

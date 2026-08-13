@@ -485,10 +485,32 @@ export function registerHandlers(): void {
       }
       for (const v of variantes) {
         if (v.id) {
+          // Si cambia el stock desde el formulario, queda registrado en el kardex.
+          // Muchas tiendas reponen mercancía justo por acá (no por Compras ni por
+          // el botón Stock); sin este registro el historial pierde esas entradas y
+          // después el inventario no cuadra con nada.
+          const antes = queryOne<{ stock: number }>('SELECT stock FROM variantes WHERE id = ?', [v.id])?.stock ?? 0
+          const ahora = Number(v.stock ?? 0)
           getDb().run(
             'UPDATE variantes SET talla=?, color=?, codigo_barras=?, stock=?, stock_minimo=? WHERE id=?',
-            [v.talla ?? null, v.color ?? null, v.codigo_barras || null, v.stock ?? 0, v.stock_minimo ?? 0, v.id]
+            [v.talla ?? null, v.color ?? null, v.codigo_barras || null, ahora, v.stock_minimo ?? 0, v.id]
           )
+          if (ahora !== antes) {
+            getDb().run(
+              `INSERT INTO movimientos_inventario (variante_id, tipo, cantidad, motivo, fecha)
+               VALUES (?, ?, ?, ?, COALESCE(?, datetime('now','localtime')))`,
+              [
+                v.id,
+                // Siempre 'ajuste', aunque suba: no fue una compra sino una
+                // corrección a mano, y así tampoco altera la "fecha de
+                // inventario", que se calcula con la primera entrada real.
+                'ajuste',
+                ahora - antes,
+                `Stock cambiado al editar el producto (${antes} → ${ahora})`,
+                fechaMov
+              ]
+            )
+          }
         } else {
           getDb().run(
             'INSERT INTO variantes (producto_id, talla, color, codigo_barras, stock, stock_minimo) VALUES (?,?,?,?,?,?)',
